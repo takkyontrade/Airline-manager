@@ -78,3 +78,10 @@ export const econ = {
 
 // Monthly seasonality of Japanese domestic travel (Jan..Dec)
 export const SEASONALITY = [0.9, 0.82, 1.02, 0.98, 1.0, 0.9, 1.05, 1.3, 1.0, 1.0, 0.98, 1.05];
+
+// Long-term bank lending rate in Japan (annual, approximate)
+const LOAN_RATE: Anchors = [
+  [1960, 0.085], [1970, 0.085], [1974, 0.095], [1980, 0.09], [1987, 0.055], [1991, 0.08],
+  [1995, 0.035], [2000, 0.025], [2010, 0.017], [2020, 0.01], [2024, 0.015], [2027, 0.02],
+];
+export const loanRate = (t: number) => interp(LOAN_RATE, t);

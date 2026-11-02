@@ -1,6 +1,6 @@
 import type { GameState } from './types';
 
-const KEY = 'airline-save-v1';
+const KEY = 'airline-save-v2';
 
 export function loadAutosave(): GameState | null {
   try {
@@ -30,7 +30,7 @@ export function clearAutosave(): void {
 export function parseSave(raw: string): GameState | null {
   try {
     const s = JSON.parse(raw) as GameState;
-    if (s && s.version === 1 && Array.isArray(s.planes) && Array.isArray(s.routes)) return s;
+    if (s && s.version === 2 && Array.isArray(s.planes) && Array.isArray(s.routes)) return s;
     return null;
   } catch {
     return null;

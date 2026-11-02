@@ -89,3 +89,10 @@ h3 { font-size: 14px; margin: 14px 0 6px; }
   aside { border-left: 0; border-top: 1px solid var(--line); }
   .grid2 { grid-template-columns: 1fr; }
 }
+
+.chip.warn { border-color: #8a5a2b; color: #ffcf99; }
+.tag.warn { background: #5a4520; } .tag.bad { background: #5a2330; }
+.meter { display: inline-block; width: 50px; height: 6px; background: #0d1628; border-radius: 3px; vertical-align: middle; overflow: hidden; }
+.meter span { display: block; height: 100%; }
+.tabs button { font-size: 13px; }
+main { grid-template-columns: minmax(0, 1fr) 520px; }

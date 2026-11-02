@@ -54,7 +54,7 @@ export function canFly(t: AircraftType, from: string, to: string): RouteCheck {
 
 // Real (inflation-adjusted) fare level, 1960 = 1
 const REAL_FARE: [number, number][] = [
-  [1960, 1], [1965, 0.9], [1970, 0.75], [1980, 0.6], [1990, 0.5], [2000, 0.4], [2010, 0.33], [2027, 0.3],
+  [1960, 1], [1965, 0.9], [1970, 0.72], [1980, 0.55], [1990, 0.45], [2000, 0.35], [2010, 0.28], [2027, 0.26],
 ];
 function realFareIndex(t: number): number {
   for (let i = 1; i < REAL_FARE.length; i++) {
@@ -131,13 +131,49 @@ export function flightCost(t: AircraftType, km: number, year: number, month: num
 export const groundCostPerPax = (year: number, month: number) => 700 * econ.jpCpi(yearFrac(year, month));
 export const SALES_COMMISSION = 0.1;
 /** General & administrative costs as a share of revenue (head office, IT, insurance) */
-export const ADMIN_SHARE = 0.15;
+export const ADMIN_SHARE = 0.18;
 
-/** Monthly crew cost of one plane (4 crew sets) */
-export function crewCostMonthly(t: AircraftType, year: number, month: number): number {
-  const w = econ.jpWage(yearFrac(year, month));
-  return 4 * (t.cockpitCrew * 90000 + t.cabinCrew * 28000) * w;
+/** Crew sets per aircraft (pilots needed = sets x cockpit crew) */
+export const CREW_SETS = 5;
+export const pilotsNeeded = (t: AircraftType) => CREW_SETS * t.cockpitCrew;
+
+/** Monthly wage of one pilot */
+export const pilotWage = (year: number, month: number) => 90000 * econ.jpWage(yearFrac(year, month));
+
+/** Monthly cabin crew cost of one plane (cabin crew are hired automatically) */
+export function cabinCostMonthly(t: AircraftType, year: number, month: number): number {
+  return CREW_SETS * t.cabinCrew * 28000 * econ.jpWage(yearFrac(year, month));
 }
+
+/** Hiring an experienced, already-rated pilot: one-off cost */
+export const hireCost = (year: number, month: number) => pilotWage(year, month) * 8;
+/** Training one pilot on a type (new hire or conversion): one-off cost, takes months */
+export const trainingCost = (t: AircraftType, year: number, month: number) =>
+  pilotWage(year, month) * (t.propulsion === 'jet' ? 14 : 8);
+export const TRAINING_MONTHS = 4;
+/** Experienced rated pilots available to hire per type per month */
+export const HIRE_LIMIT_PER_MONTH = 6;
+
+// ---- maintenance ---------------------------------------------------------
+
+export const MAINT_LEVELS = {
+  low: { label: '節約', costMul: 0.8, target: 72 },
+  standard: { label: '標準', costMul: 1.0, target: 86 },
+  high: { label: '手厚い', costMul: 1.3, target: 96 },
+} as const;
+
+/** Flight hours between heavy checks (C-check equivalent) */
+export const HEAVY_CHECK_HOURS = 5000;
+/** Heavy check cost as share of the type's current new price; every 3rd is a D-check */
+export function heavyCheckCost(t: AircraftType, isD: boolean, year: number, month: number): number {
+  return newPriceYen(t, Math.min(year, t.endYear), month) * (isD ? 0.07 : 0.025);
+}
+export const heavyCheckMonths = (isD: boolean) => (isD ? 2 : 1);
+
+/** Multiplier on fuel burn from age and condition */
+export const fuelFactor = (ageYears: number, condition: number) => (1 + 0.004 * ageYears) * (1 + (90 - Math.min(90, condition)) * 0.002);
+/** Multiplier on routine maintenance cost from age */
+export const maintAgeFactor = (ageYears: number) => 1 + 0.025 * ageYears;
 
 export function overheadMonthly(planes: number, year: number, month: number): number {
   const c = econ.jpCpi(yearFrac(year, month));

@@ -5,11 +5,11 @@ import { clearAutosave, downloadSave, loadAutosave, parseSave, writeAutosave } f
 import { routeDistance } from '../engine/model';
 import type { GameState } from '../engine/types';
 import { MapView } from './MapView';
-import { FinancePanel, FleetPanel, MarketPanel, NewsPanel, RoutesPanel } from './panels';
+import { FinancePanel, FleetPanel, MarketPanel, NewsPanel, RoutesPanel, StaffPanel } from './panels';
 
-type Tab = 'routes' | 'fleet' | 'market' | 'finance' | 'news';
+type Tab = 'routes' | 'fleet' | 'market' | 'staff' | 'finance' | 'news';
 const TABS: [Tab, string][] = [
-  ['routes', '路線'], ['fleet', '機材'], ['market', '機材市場'], ['finance', '財務'], ['news', 'ニュース'],
+  ['routes', '路線'], ['fleet', '機材'], ['market', '機材市場'], ['staff', '人員・整備'], ['finance', '財務'], ['news', 'ニュース'],
 ];
 
 export function App() {
@@ -42,7 +42,7 @@ function NewGame({ onStart }: { onStart: (s: GameState) => void }) {
           ))}
         </select>
       </label>
-      <p className="muted small-text">資本金は5億円です。最初は中古のDC-3やリースのプロペラ機から始めるのがおすすめです。</p>
+      <p className="muted small-text">資本金は5億円です。DC-3の資格を持つパイロットが10人います。最初は中古のDC-3や、乗員付きのウェットリースから始めるのがおすすめです。</p>
       <div className="row">
         <button onClick={() => onStart(newGame(name || '新日本航空', base))}>会社を設立する</button>
         <button className="secondary" onClick={() => fileRef.current?.click()}>セーブファイルを読み込む</button>
@@ -128,7 +128,8 @@ function Game({ state, setState }: { state: GameState; setState: (s: GameState |
             {tab === 'routes' && <RoutesPanel s={state} apply={apply} onHover={setHoverRoute} />}
             {tab === 'fleet' && <FleetPanel s={state} apply={apply} />}
             {tab === 'market' && <MarketPanel s={state} apply={apply} />}
-            {tab === 'finance' && <FinancePanel s={state} />}
+            {tab === 'staff' && <StaffPanel s={state} apply={apply} />}
+            {tab === 'finance' && <FinancePanel s={state} apply={apply} />}
             {tab === 'news' && <NewsPanel s={state} />}
           </div>
         </aside>
