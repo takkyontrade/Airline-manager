@@ -249,6 +249,18 @@ export function autoSchedule(s: GameState): GameState {
     state.at.set(p.id, p.base);
   }
 
+  // departures placed so far, per route direction and per airport (to spread them out)
+  const routeDeps = new Map<string, number[]>();
+  const aptDeps = new Map<string, number[]>();
+  const note = (key: string, apt: string, t: number) => {
+    routeDeps.set(key, [...(routeDeps.get(key) ?? []), t]);
+    aptDeps.set(apt, [...(aptDeps.get(apt) ?? []), t]);
+  };
+  for (const p of lockedPlanes) for (const l of p.schedule) {
+    const r = s.routes.find((x) => x.id === l.routeId);
+    if (r) note(`${l.routeId}:${l.dir}`, l.dir === 0 ? r.from : r.to, l.dep % 1440);
+  }
+
   // multi-stop circuits first: each needs one plane to fly all its legs in a day
   for (const c of s.circuits ?? []) {
     const segs = circuitSegments(s, c);
@@ -324,13 +336,30 @@ export function autoSchedule(s: GameState): GameState {
         const [openA, closeA] = airportHours(away, s.year);
         const ready = Math.max(state.time.get(p.id)!, openB);
         const pref = POLICY_LEVEL[r.policy] <= s.opsLevel ? preferredTimes(r.policy, openB, closeB, Math.ceil(r.targetWeekly / 7)) : [];
-        const candidates = [...pref.filter((t) => t >= ready), ready];
-        let chosen: number | null = null;
-        for (const dep of candidates) {
+        const fits = (dep: number) => {
           const arr = dep + block;
-          const back = Math.max(arr + turn, openA);
-          const backArr = back + block;
-          if (arr <= closeA && back >= openA && backArr <= closeB) { chosen = dep; break; }
+          const back = Math.ceil(Math.max(arr + turn, openA) / 5) * 5;
+          return arr <= closeA && back >= openA && back + block <= closeB;
+        };
+        let chosen: number | null = pref.find((t) => t >= ready && fits(t)) ?? null;
+        if (chosen === null) {
+          // spread the route's flights over the day instead of sending every plane at opening time
+          const key = `${r.id}:${outDir}`;
+          const same = routeDeps.get(key) ?? [];
+          const others = aptDeps.get(p.base) ?? [];
+          const daily = Math.max(1, Math.ceil(r.targetWeekly / 7));
+          const gap = Math.min(150, Math.max(30, ((closeB - openB) / daily) * 0.7));
+          const dist = (t: number, list: number[]) => list.reduce((m, x) => Math.min(m, Math.abs(x - t)), Infinity);
+          const start = Math.ceil(ready / 5) * 5;
+          let best = -1;
+          for (let t = start; t <= Math.min(start + 240, closeB); t += 5) {
+            if (!fits(t) || dist(t, others) < 10) continue;
+            // earliest time that is as far as possible (up to the ideal gap) from the route's other flights
+            const score = Math.min(gap, dist(t, same));
+            if (score > best) { best = score; chosen = t; }
+            if (score >= gap) break;
+          }
+          if (chosen === null && fits(ready)) chosen = ready;
         }
         if (chosen === null) {
           // long-haul: an idle plane flies a dedicated rotation over several days
@@ -352,8 +381,10 @@ export function autoSchedule(s: GameState): GameState {
         if (touches.some((c) => slotLeft[c] < 2)) continue;
         for (const c of touches) slotLeft[c] -= 2;
         const arr = chosen + block;
-        const back = Math.max(arr + turn, openA);
+        const back = Math.ceil(Math.max(arr + turn, openA) / 5) * 5;
         p.schedule.push({ routeId: r.id, dir: outDir, dep: chosen, days }, { routeId: r.id, dir: (1 - outDir) as 0 | 1, dep: back, days });
+        note(`${r.id}:${outDir}`, p.base, chosen);
+        note(`${r.id}:${1 - outDir}`, away, back);
         state.time.set(p.id, back + block + turn);
         need.remainingWeekly -= perWeek;
         placed = true;
