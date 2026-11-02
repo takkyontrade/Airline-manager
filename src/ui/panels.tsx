@@ -23,6 +23,7 @@ import type { CabinLayout, GameState, MaintLevel, MonthReport, Plane, SchedulePo
 import { CABIN_LABEL, cabinAcceptance, premiumFareMul } from '../engine/brand';
 import { planeLivery } from './BrandPanel';
 import { PlaneSilhouette } from './PlaneSilhouette';
+import { CircuitsBox } from './CircuitsBox';
 import { fareBand, routeLicensing } from '../data/history';
 import { allianceMembers, partners, rivalAlliance, rivalOverview } from '../engine/rivals';
 import { ALLIANCES } from '../data/alliances';
@@ -41,10 +42,11 @@ export function RoutesPanel({ s, apply, onHover }: { s: GameState; apply: Apply;
   const rep = lastReport(s);
   const fly = flyablePlanes(s);
   if (s.routes.length === 0)
-    return <p className="hint">まだ路線がありません。地図で空港を2つ順にクリックすると路線を開設できます。</p>;
+    return <div className="list"><p className="hint">まだ路線がありません。地図で空港を2つ順にクリックすると路線を開設できます。</p><CircuitsBox s={s} apply={apply} /></div>;
   const ownedTypes = [...new Set(s.planes.map((p) => p.typeId))];
   return (
     <div className="list">
+      <CircuitsBox s={s} apply={apply} />
       {s.routes.map((r) => {
         const km = routeDistance(r.from, r.to);
         const f = routeMarket(s, r, fly);

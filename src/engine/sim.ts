@@ -809,3 +809,38 @@ function safetyEvents(s: GameState, flights: Record<string, number>, r: () => nu
   }
   return out;
 }
+
+// ---- circuits (triangle routes etc.) ---------------------------------------
+
+/**
+ * Create a multi-stop circuit such as HND→ITM→FUK→HND. Missing legs are
+ * opened as routes (with licensing rules) and filled only by the circuit.
+ */
+export function addCircuit(s0: GameState, stops: string[], targetWeekly = 7, typeId: string | null = null): Result {
+  const clean = stops.filter(Boolean);
+  if (clean.length < 3) return fail('周回ルートには3つ以上の空港が必要です');
+  if (new Set(clean).size !== clean.length) return fail('同じ空港は1回だけ選んでください');
+  if (clean.some((c) => isForeign(c))) return fail('周回ルートは今のところ国内線だけです');
+  let s = s0;
+  for (let i = 0; i < clean.length; i++) {
+    const a = clean[i], b = clean[(i + 1) % clean.length];
+    if (s.routes.some((r) => (r.kind ?? 'pax') === 'pax' && ((r.from === a && r.to === b) || (r.from === b && r.to === a)))) continue;
+    const r = openRoute(s, a, b);
+    if (!r.ok) return fail(`${AIRPORT_BY_CODE[a].name}〜${AIRPORT_BY_CODE[b].name}：${r.error}`);
+    s = { ...r.state, routes: r.state.routes.map((x, k) => (k === r.state.routes.length - 1 ? { ...x, targetWeekly: 0 } : x)) };
+  }
+  const [id, s2] = nextId(s, 'C');
+  const circuit = { id, stops: clean, targetWeekly: Math.max(0, Math.min(70, Math.round(targetWeekly))), typeId };
+  const label = [...clean, clean[0]].map((c) => AIRPORT_BY_CODE[c].name).join('→');
+  return ok(autoSchedule(withNews({ ...s2, circuits: [...(s2.circuits ?? []), circuit] }, `周回ルート ${label} を設定しました。`)));
+}
+
+export function setCircuit(s: GameState, id: string, patch: Partial<{ targetWeekly: number; typeId: string | null }>): Result {
+  if (!(s.circuits ?? []).some((c) => c.id === id)) return fail('周回ルートが見つかりません');
+  const circuits = s.circuits!.map((c) => (c.id === id ? { ...c, ...patch, targetWeekly: Math.max(0, Math.min(70, Math.round(patch.targetWeekly ?? c.targetWeekly))) } : c));
+  return ok(autoSchedule({ ...s, circuits }));
+}
+
+export function removeCircuit(s: GameState, id: string): Result {
+  return ok(autoSchedule({ ...s, circuits: (s.circuits ?? []).filter((c) => c.id !== id) }));
+}

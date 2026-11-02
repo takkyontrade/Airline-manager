@@ -1,0 +1,7 @@
+
+.circuit-form { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin: 6px 0; }
+.circuit-form button { grid-column: span 2; }
+.circuit-row { border-top: 1px solid var(--line, #2a3442); padding-top: 6px; margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+.circuit-row label.inline { display: flex; align-items: center; gap: 4px; }
+.circuit-row label.inline input { width: 56px; }
+.warn { color: #e0a33a; }

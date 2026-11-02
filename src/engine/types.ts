@@ -218,6 +218,8 @@ export interface GameState {
   /** safety record */
   safety?: SafetyRecord;
   difficulty?: 'easy' | 'normal' | 'hard';
+  /** multi-stop rotations (e.g. triangle routes) scheduled automatically */
+  circuits?: Circuit[];
   /** year the company was founded (for retro liveries) */
   foundedYear?: number;
   /** company livery */
@@ -247,4 +249,13 @@ export interface CompanyLivery {
   /** short text painted on the tail (2-3 characters) */
   logo: string;
   logoColor: string;
+}
+
+/** A rotation through several airports that returns to the first, e.g. HND→ITM→FUK→HND */
+export interface Circuit {
+  id: string;
+  stops: string[];
+  /** times per week the whole circuit is flown */
+  targetWeekly: number;
+  typeId: string | null;
 }

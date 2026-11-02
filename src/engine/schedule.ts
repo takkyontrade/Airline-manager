@@ -4,7 +4,7 @@ import { AIRPORT_BY_CODE, isForeign } from '../data/airports';
 import { econ, yearFrac } from '../data/economy';
 import { canFly, ISLANDS, routeBlockHours, routeDistance, turnaroundHours } from './model';
 import { planeType } from './fleet';
-import type { GameState, Leg, Plane, Route, SchedulePolicy } from './types';
+import type { Circuit, GameState, Leg, Plane, Route, SchedulePolicy } from './types';
 import { fail, ok, rng, type Result } from './util';
 
 export const DAILY = 127;
@@ -234,6 +234,50 @@ export function autoSchedule(s: GameState): GameState {
     state.at.set(p.id, p.base);
   }
 
+  // multi-stop circuits first: each needs one plane to fly all its legs in a day
+  for (const c of s.circuits ?? []) {
+    const segs = circuitSegments(s, c);
+    if (!segs) continue;
+    let remaining = c.targetWeekly;
+    for (let guard = 0; remaining > 0 && guard < 30; guard++) {
+      const perWeek = Math.min(7, remaining);
+      const days = perWeek >= 7 ? DAILY : spreadDays(perWeek);
+      const ok = (p: Plane) => !planeType(p).freighter && (!c.typeId || p.typeId === c.typeId) && segs.every((g) => canFly(planeType(p), g.route.from, g.route.to, s.year, g.route.via).ok);
+      if (!planes.some((p) => p.base === c.stops[0] && ok(p))) {
+        const idle = planes.find((p) => p.schedule.length === 0 && ok(p));
+        if (idle) idle.base = c.stops[0];
+      }
+      let placed = false;
+      for (const p of planes) {
+        if (p.base !== c.stops[0] || !ok(p) || (p.cycleDays ?? 1) > 1) continue;
+        const turn = minTurnMin(p) + s.bufferMin;
+        let ready = Math.max(state.time.get(p.id)!, airportHours(c.stops[0], s.year)[0]);
+        const legs: Leg[] = [];
+        let fits = true;
+        for (const g of segs) {
+          const [open] = airportHours(g.from, s.year);
+          const [, close] = airportHours(g.to, s.year);
+          const dep = Math.max(ready, open);
+          const arr = dep + legMinutes(p, g.route, s.year);
+          if (arr > close) { fits = false; break; }
+          legs.push({ routeId: g.route.id, dir: g.dir, dep, days });
+          ready = arr + turn;
+        }
+        if (!fits) continue;
+        const touches: Record<string, number> = {};
+        for (const g of segs) for (const code of [g.from, g.to]) if (code in slotLeft) touches[code] = (touches[code] ?? 0) + 1;
+        if (Object.entries(touches).some(([code, n]) => slotLeft[code] < n)) continue;
+        for (const [code, n] of Object.entries(touches)) slotLeft[code] -= n;
+        p.schedule.push(...legs);
+        state.time.set(p.id, ready);
+        remaining -= perWeek;
+        placed = true;
+        break;
+      }
+      if (!placed) break;
+    }
+  }
+
   // round-robin: every route gets one round trip per pass, so one long route
   // cannot swallow all the aircraft time
   const stuck = new Set<Need>();
@@ -336,6 +380,36 @@ function longHaulCycle(s: GameState, p: Plane, r: Route, outDir: 0 | 1, turn: nu
     };
   }
   return null;
+}
+
+/** The legs of a circuit with the route and direction used for each (null if a leg has no route) */
+export function circuitSegments(s: GameState, c: Circuit): { from: string; to: string; route: Route; dir: 0 | 1 }[] | null {
+  const out: { from: string; to: string; route: Route; dir: 0 | 1 }[] = [];
+  for (let i = 0; i < c.stops.length; i++) {
+    const from = c.stops[i];
+    const to = c.stops[(i + 1) % c.stops.length];
+    const route = s.routes.find((r) => (r.kind ?? 'pax') === 'pax' && ((r.from === from && r.to === to) || (r.from === to && r.to === from)));
+    if (!route) return null;
+    out.push({ from, to, route, dir: route.from === from ? 0 : 1 });
+  }
+  return out;
+}
+
+/** Times per week a circuit got into the timetable */
+export function circuitScheduled(s: GameState, c: Circuit): number {
+  const segs = circuitSegments(s, c);
+  if (!segs) return 0;
+  const first = segs[0];
+  // count planes whose rotation contains the whole circuit in order
+  let n = 0;
+  for (const p of s.planes) {
+    const legs = [...p.schedule].sort((a, b) => a.dep - b.dep);
+    for (let i = 0; i + segs.length <= legs.length; i++) {
+      if (legs[i].routeId !== first.route.id || legs[i].dir !== first.dir) continue;
+      if (segs.every((g, k) => legs[i + k].routeId === g.route.id && legs[i + k].dir === g.dir)) n += legsPerWeek(p, legs[i]);
+    }
+  }
+  return n;
 }
 
 /** Spread n (<7) weekly flights over the week, e.g. 3 -> Mon/Wed/Fri */

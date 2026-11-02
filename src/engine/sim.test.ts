@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
-import { advanceMonth, closeRoute, joinAlliance, newGame, openRoute, routeMarket, setOps, setRoute, START_CASH } from './sim';
-import { autoSchedule, scheduledWeekly, setPlaneSchedule, slotUsage, validateRotation, legViews } from './schedule';
+import { addCircuit, advanceMonth, closeRoute, removeCircuit, setCircuit, joinAlliance, newGame, openRoute, routeMarket, setOps, setRoute, START_CASH } from './sim';
+import { circuitScheduled, autoSchedule, scheduledWeekly, setPlaneSchedule, slotUsage, validateRotation, legViews } from './schedule';
 import { acquireUsed, disposePlane, orderNew, leadMonths, startConversion, startHeavyCheck } from './fleet';
 import { creditLimit, takeLoan, repayLoan } from './finance';
 import { crewedPlanes, hirePilots, trainPilots } from './staff';
@@ -414,5 +414,43 @@ describe('start options and long-haul editing', () => {
     expect(q.locked).toBe(true);
     expect(q.cycleDays).toBe(3);
     expect(validateRotation(s, q)).toEqual([]);
+  });
+});
+
+describe('circuits', () => {
+  function base2000() {
+    let s = newGame('t', 'HND', 1, { startYear: 2000 });
+    let id: string;
+    [s, id] = withListing(s, 'b737-500', 100_000_000);
+    return must(acquireUsed(s, id, 'buy'));
+  }
+  test('a triangle opens missing legs and is flown by one plane in order', () => {
+    const s = must(addCircuit(base2000(), ['HND', 'KOJ', 'FUK']));
+    expect(s.routes).toHaveLength(3);
+    const c = s.circuits![0];
+    expect(circuitScheduled(s, c)).toBe(7);
+    const legs = s.planes[0].schedule;
+    expect(legs).toHaveLength(3);
+    expect(validateRotation(s, s.planes[0])).toEqual([]);
+    for (const r of s.routes) expect(scheduledWeekly(s, r.id)).toBe(7);
+  });
+  test('weekly target can be lowered and the circuit removed', () => {
+    let s = must(addCircuit(base2000(), ['HND', 'KOJ', 'FUK']));
+    const id = s.circuits![0].id;
+    s = must(setCircuit(s, id, { targetWeekly: 3 }));
+    expect(circuitScheduled(s, s.circuits![0])).toBe(3);
+    s = must(removeCircuit(s, id));
+    expect(s.circuits).toHaveLength(0);
+    expect(s.planes[0].schedule).toHaveLength(0);
+  });
+  test('needs three different domestic airports', () => {
+    const s = base2000();
+    expect(addCircuit(s, ['HND', 'FUK']).ok).toBe(false);
+    expect(addCircuit(s, ['HND', 'FUK', 'HND']).ok).toBe(false);
+  });
+  test('closing one leg stops the circuit without breaking the schedule', () => {
+    let s = must(addCircuit(base2000(), ['HND', 'KOJ', 'FUK']));
+    s = must(closeRoute(s, s.routes[1].id));
+    expect(circuitScheduled(s, s.circuits![0])).toBe(0);
   });
 });
