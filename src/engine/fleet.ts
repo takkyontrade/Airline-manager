@@ -49,7 +49,7 @@ function regNo(s: GameState): string {
 function basePlane(s: GameState, id: string, t: AircraftType): Plane {
   return {
     id, typeId: t.id, regNo: regNo(s), builtYear: s.year, status: 'active', readyYM: nowYM(s),
-    purchaseYen: 0, balanceDueYen: 0, lease: null, acquiredYM: nowYM(s), routeId: null,
+    purchaseYen: 0, balanceDueYen: 0, lease: null, acquiredYM: nowYM(s), base: s.baseAirport, schedule: [], locked: false,
     condition: 100, totalHours: 0, hoursSinceHeavy: 0, heavyChecks: 0,
   };
 }

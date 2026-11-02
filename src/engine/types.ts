@@ -29,7 +29,12 @@ export interface Plane {
   balanceDueYen: number;
   lease: Lease | null;
   acquiredYM: YM;
-  routeId: string | null;
+  /** airport where the plane starts and ends its daily rotation (overnight) */
+  base: string;
+  /** daily rotation, repeated on the days in each leg's mask */
+  schedule: Leg[];
+  /** locked planes keep their schedule when the auto-scheduler runs */
+  locked: boolean;
   /** 0..100 */
   condition: number;
   totalHours: number;
@@ -37,11 +42,28 @@ export interface Plane {
   heavyChecks: number;
 }
 
+/** One flight in a plane's daily rotation */
+export interface Leg {
+  routeId: string;
+  /** 0 = route.from -> route.to, 1 = reverse */
+  dir: 0 | 1;
+  /** scheduled departure, minutes after midnight (local) */
+  dep: number;
+  /** bitmask of operating days, bit0 = Monday; 127 = daily */
+  days: number;
+}
+
+export type SchedulePolicy = 'pack' | 'even' | 'peak' | 'bank';
+
 export interface Route {
   id: string;
   from: string;
   to: string;
-  weeklyFreq: number;
+  /** target round trips per week (for the auto-scheduler) */
+  targetWeekly: number;
+  /** aircraft type the auto-scheduler should use (null = any suitable) */
+  typeId: string | null;
+  policy: SchedulePolicy;
   fareYen: number;
   openedYear: number;
   openedMonth: number;
@@ -78,6 +100,9 @@ export type MaintLevel = 'low' | 'standard' | 'high';
 
 export interface RouteResult {
   routeId: string;
+  /** share of flights arriving within 15 minutes */
+  onTime: number;
+  cancelled: number;
   flights: number;
   seats: number;
   pax: number;
@@ -97,6 +122,8 @@ export interface MonthCosts {
   airport: number;
   ground: number;
   sales: number;
+  delays: number;
+  bases: number;
   lease: number;
   interest: number;
   overhead: number;
@@ -113,6 +140,7 @@ export interface MonthReport {
   deliveriesPaid: number;
   cashEnd: number;
   pax: number;
+  onTime: number;
   routes: RouteResult[];
 }
 
@@ -124,7 +152,7 @@ export interface NewsItem {
 }
 
 export interface GameState {
-  version: 2;
+  version: 3;
   companyName: string;
   baseAirport: string;
   year: number;
@@ -136,6 +164,14 @@ export interface GameState {
   loans: Loan[];
   pilots: Record<string, PilotPool>;
   maintLevel: MaintLevel;
+  /** airports where crews are based (no hotel cost for night stops) */
+  crewBases: string[];
+  /** extra turnaround buffer in minutes used by the auto-scheduler */
+  bufferMin: number;
+  /** operations planning department level 0..3 */
+  opsLevel: number;
+  /** daily movements (departures + arrivals) we may use at slot-controlled airports */
+  slots: Record<string, number>;
   usedMarket: UsedListing[];
   /** experienced pilots hired this month, per type (reset monthly) */
   hiresThisMonth?: Record<string, number>;

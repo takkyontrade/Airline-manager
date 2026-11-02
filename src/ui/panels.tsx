@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { AIRPORT_BY_CODE } from '../data/airports';
 import { AIRCRAFT_BY_ID } from '../data/aircraft';
 import {
-  assignPlane, closeRoute, flyablePlanes, formatYen, planeAge, planeType, planesOnRoute,
-  routeCapacity, routeMarket, routePlannedCapacity, setMaintLevel, setRoute, type Result,
+  closeRoute, flyablePlanes, formatYen, planeAge, planeType, planesOnRoute,
+  routeMarket, setMaintLevel, setRoute, type Result,
 } from '../engine/sim';
+import { OPS_LEVELS, POLICY_LABEL, POLICY_LEVEL, scheduledWeekly, validateRotation } from '../engine/schedule';
 import {
   acquireUsed, disposalTerms, disposePlane, financeLeaseMonthly, heavyCheckDue, heavyCheckOverdue,
   leadMonths, newTypesOnSale, nextCheckIsD, nowYM, OPERATING_TERMS, operatingLeaseRate,
@@ -13,10 +14,10 @@ import {
 import { creditLimit, currentLoanRate, debt, fleetValue, LOAN_TERMS, monthlyPayment, repayLoan, takeLoan } from '../engine/finance';
 import { hirePilots, pilotsRequired, pool, relevantTypes, traineeCount, trainPilots } from '../engine/staff';
 import {
-  blockHours, canFly, HEAVY_CHECK_HOURS, heavyCheckCost, HIRE_LIMIT_PER_MONTH, hireCost, MAINT_LEVELS,
+  canFly, HEAVY_CHECK_HOURS, heavyCheckCost, HIRE_LIMIT_PER_MONTH, hireCost, MAINT_LEVELS,
   newPriceYen, pilotWage, routeDistance, TRAINING_MONTHS, trainingCost,
 } from '../engine/model';
-import type { GameState, MaintLevel, MonthReport, Plane } from '../engine/types';
+import type { GameState, MaintLevel, MonthReport, Plane, SchedulePolicy } from '../engine/types';
 import { PlaneSilhouette } from './PlaneSilhouette';
 
 type Apply = (r: Result) => void;
@@ -33,16 +34,15 @@ export function RoutesPanel({ s, apply, onHover }: { s: GameState; apply: Apply;
   const fly = flyablePlanes(s);
   if (s.routes.length === 0)
     return <p className="hint">まだ路線がありません。地図で空港を2つ順にクリックすると路線を開設できます。</p>;
+  const ownedTypes = [...new Set(s.planes.map((p) => p.typeId))];
   return (
     <div className="list">
       {s.routes.map((r) => {
         const km = routeDistance(r.from, r.to);
-        const planned = routePlannedCapacity(s, r);
-        const cap = routeCapacity(s, r);
         const f = routeMarket(s, r, fly);
         const res = rep?.routes.find((x) => x.routeId === r.id);
-        const assigned = planesOnRoute(s.planes, r.id);
-        const idle = s.planes.filter((p) => p.routeId === null && p.status !== 'onOrder' && canFly(planeType(p), r.from, r.to).ok);
+        const sched = scheduledWeekly(s, r.id);
+        const flyers = planesOnRoute(s, r.id);
         return (
           <div key={r.id} className="card" onMouseEnter={() => onHover(r.id)} onMouseLeave={() => onHover(null)}>
             <div className="card-head">
@@ -57,9 +57,28 @@ export function RoutesPanel({ s, apply, onHover }: { s: GameState; apply: Apply;
                 <span className="muted">相場 {num(f.refFare)}円</span>
               </label>
               <label>
-                週の往復便数
-                <input type="number" min={0} max={planned} value={r.weeklyFreq} onChange={(e) => apply(setRoute(s, r.id, { weeklyFreq: Number(e.target.value) }))} />
-                <span className="muted">最大 {planned}便{cap < Math.min(planned, r.weeklyFreq) && <span className="neg">（今月飛べるのは{cap}便）</span>}</span>
+                目標：週の往復便数
+                <input type="number" min={0} value={r.targetWeekly} onChange={(e) => apply(setRoute(s, r.id, { targetWeekly: Number(e.target.value) }))} />
+                <span className={sched < r.targetWeekly ? 'neg' : 'muted'}>
+                  ダイヤに入ったのは週{sched}往復{sched < r.targetWeekly && '（機材・時間・発着枠が足りません）'}
+                </span>
+              </label>
+              <label>
+                使う機種
+                <select value={r.typeId ?? ''} onChange={(e) => apply(setRoute(s, r.id, { typeId: e.target.value || null }))}>
+                  <option value="">おまかせ</option>
+                  {ownedTypes.map((id) => <option key={id} value={id} disabled={!canFly(AIRCRAFT_BY_ID[id], r.from, r.to).ok}>{AIRCRAFT_BY_ID[id].name}</option>)}
+                </select>
+              </label>
+              <label>
+                ダイヤの方針
+                <select value={r.policy} onChange={(e) => apply(setRoute(s, r.id, { policy: e.target.value as SchedulePolicy }))}>
+                  {(Object.keys(POLICY_LABEL) as SchedulePolicy[]).map((k) => (
+                    <option key={k} value={k} disabled={POLICY_LEVEL[k] > s.opsLevel}>
+                      {POLICY_LABEL[k]}{POLICY_LEVEL[k] > s.opsLevel ? `（運航計画部門「${OPS_LEVELS[POLICY_LEVEL[k]].label}」以上）` : ''}
+                    </option>
+                  ))}
+                </select>
               </label>
             </div>
             <div className="muted small-text">
@@ -67,27 +86,19 @@ export function RoutesPanel({ s, apply, onHover }: { s: GameState; apply: Apply;
             </div>
             {res && (
               <div className="small-text">
-                先月：旅客 {num(res.pax)}人 ／ 搭乗率 {res.seats ? pct(res.pax / res.seats) : '-'} ／ 収入 {formatYen(res.revenue)} ／ 運航費 {formatYen(res.cost)}
+                先月：旅客 {num(res.pax)}人 ／ 搭乗率 {res.seats ? pct(res.pax / res.seats) : '-'} ／ 定時率 {pct(res.onTime)}
+                {res.cancelled >= 0.5 && <span className="neg"> ／ 欠航 {Math.round(res.cancelled)}便</span>} ／ 収入 {formatYen(res.revenue)} ／ 運航費 {formatYen(res.cost)}
               </div>
             )}
-            <div className="assigned">
-              {assigned.map((p) => (
-                <span key={p.id} className={`chip ${fly.has(p.id) ? '' : 'warn'}`} title={fly.has(p.id) ? '' : planeIssue(s, p)}>
-                  {planeType(p).name} {p.regNo}（{blockHours(planeType(p), km).toFixed(1)}h）
-                  {!fly.has(p.id) && ' ⚠'}
-                  <button className="link" onClick={() => apply(assignPlane(s, p.id, null))}>外す</button>
-                </span>
-              ))}
-              {idle.length > 0 && (
-                <select value="" onChange={(e) => e.target.value && apply(assignPlane(s, e.target.value, r.id))}>
-                  <option value="">＋ 機体を割り当てる</option>
-                  {idle.map((p) => (
-                    <option key={p.id} value={p.id}>{planeType(p).name} {p.regNo}</option>
-                  ))}
-                </select>
-              )}
-              {assigned.length === 0 && idle.length === 0 && <span className="muted">この路線を飛べる空き機体がありません</span>}
-            </div>
+            {flyers.length > 0 && (
+              <div className="assigned">
+                {flyers.map((p) => (
+                  <span key={p.id} className={`chip ${fly.has(p.id) ? '' : 'warn'}`} title={fly.has(p.id) ? '' : planeIssue(s, p)}>
+                    {planeType(p).name} {p.regNo}{p.locked && ' 🔒'}{!fly.has(p.id) && ' ⚠'}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         );
       })}
@@ -99,6 +110,7 @@ function planeIssue(_s: GameState, p: Plane): string {
   if (p.status === 'onOrder') return `納入待ち（${ymLabel(p.readyYM)}）`;
   if (p.status === 'heavyCheck') return `重整備中（${ymLabel(p.readyYM)}まで）`;
   if (heavyCheckOverdue(p)) return '重整備の期限切れで飛行停止';
+  if (validateRotation(_s, p).length) return 'ダイヤに問題あり';
   return 'パイロット不足';
 }
 
@@ -148,14 +160,7 @@ export function FleetPanel({ s, apply }: { s: GameState; apply: Apply }) {
             )}
             <div className="row">
               {p.status !== 'onOrder' && (
-                <select value={p.routeId ?? ''} onChange={(e) => apply(assignPlane(s, p.id, e.target.value || null))}>
-                  <option value="">（待機）</option>
-                  {s.routes.map((r) => (
-                    <option key={r.id} value={r.id} disabled={!canFly(t, r.from, r.to).ok}>
-                      {aptName(r.from)}〜{aptName(r.to)}
-                    </option>
-                  ))}
-                </select>
+                <span className="small-text muted">拠点 {aptName(p.base)} ／ 1日{p.schedule.length}便{p.locked ? '（手動・固定）' : ''}</span>
               )}
               {p.status === 'active' && !wet && (
                 <button className="secondary small" onClick={() => {
@@ -358,7 +363,7 @@ export function StaffPanel({ s, apply }: { s: GameState; apply: Apply }) {
 
 const COST_LABELS: Record<keyof MonthReport['costs'], string> = {
   fuel: '燃料費', maintenance: '整備費', heavyChecks: '重整備', crew: '人件費（乗員）', training: '訓練費',
-  airport: '空港使用料', ground: '地上・旅客サービス', sales: '販売手数料', lease: 'リース料', interest: '支払利息', overhead: '本社経費',
+  airport: '空港使用料', ground: '地上・旅客サービス', sales: '販売手数料', delays: '遅延・欠航対応', bases: '基地・運航計画', lease: 'リース料', interest: '支払利息', overhead: '本社経費',
 };
 
 export function FinancePanel({ s, apply }: { s: GameState; apply: Apply }) {

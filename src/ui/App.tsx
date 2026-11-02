@@ -6,10 +6,11 @@ import { routeDistance } from '../engine/model';
 import type { GameState } from '../engine/types';
 import { MapView } from './MapView';
 import { FinancePanel, FleetPanel, MarketPanel, NewsPanel, RoutesPanel, StaffPanel } from './panels';
+import { SchedulePanel } from './SchedulePanel';
 
-type Tab = 'routes' | 'fleet' | 'market' | 'staff' | 'finance' | 'news';
+type Tab = 'routes' | 'schedule' | 'fleet' | 'market' | 'staff' | 'finance' | 'news';
 const TABS: [Tab, string][] = [
-  ['routes', '路線'], ['fleet', '機材'], ['market', '機材市場'], ['staff', '人員・整備'], ['finance', '財務'], ['news', 'ニュース'],
+  ['routes', '路線'], ['schedule', 'ダイヤ'], ['fleet', '機材'], ['market', '機材市場'], ['staff', '人員・整備'], ['finance', '財務'], ['news', 'ニュース'],
 ];
 
 export function App() {
@@ -126,6 +127,7 @@ function Game({ state, setState }: { state: GameState; setState: (s: GameState |
           </nav>
           <div className="panel">
             {tab === 'routes' && <RoutesPanel s={state} apply={apply} onHover={setHoverRoute} />}
+            {tab === 'schedule' && <SchedulePanel s={state} apply={apply} />}
             {tab === 'fleet' && <FleetPanel s={state} apply={apply} />}
             {tab === 'market' && <MarketPanel s={state} apply={apply} />}
             {tab === 'staff' && <StaffPanel s={state} apply={apply} />}

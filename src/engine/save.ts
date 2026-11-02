@@ -1,11 +1,17 @@
 import type { GameState } from './types';
+import { autoSchedule, INITIAL_SLOTS } from './schedule';
 
-const KEY = 'airline-save-v2';
+const KEY = 'airline-save-v3';
+const OLD_KEYS = ['airline-save-v2'];
 
 export function loadAutosave(): GameState | null {
   try {
-    const raw = localStorage.getItem(KEY);
-    return raw ? parseSave(raw) : null;
+    for (const k of [KEY, ...OLD_KEYS]) {
+      const raw = localStorage.getItem(k);
+      const s = raw ? parseSave(raw) : null;
+      if (s) return s;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -21,17 +27,40 @@ export function writeAutosave(s: GameState): void {
 
 export function clearAutosave(): void {
   try {
-    localStorage.removeItem(KEY);
+    for (const k of [KEY, ...OLD_KEYS]) localStorage.removeItem(k);
   } catch {
     /* ignore */
   }
 }
 
-export function parseSave(raw: string): GameState | null {
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/** Upgrade older saves to the current format */
+function migrate(raw: any): GameState | null {
+  if (!raw || !Array.isArray(raw.planes) || !Array.isArray(raw.routes)) return null;
+  if (raw.version === 3) return raw as GameState;
+  if (raw.version === 2) {
+    const s: GameState = {
+      ...raw,
+      version: 3,
+      crewBases: [raw.baseAirport],
+      bufferMin: 15,
+      opsLevel: 0,
+      slots: { ...INITIAL_SLOTS },
+      routes: raw.routes.map((r: any) => ({
+        id: r.id, from: r.from, to: r.to, fareYen: r.fareYen, openedYear: r.openedYear, openedMonth: r.openedMonth,
+        targetWeekly: r.weeklyFreq ?? 7, typeId: null, policy: 'pack',
+      })),
+      planes: raw.planes.map(({ routeId: _routeId, ...p }: any) => ({ ...p, base: raw.baseAirport, schedule: [], locked: false })),
+      history: [],
+    };
+    return autoSchedule(s);
+  }
+  return null;
+}
+
+export function parseSave(text: string): GameState | null {
   try {
-    const s = JSON.parse(raw) as GameState;
-    if (s && s.version === 2 && Array.isArray(s.planes) && Array.isArray(s.routes)) return s;
-    return null;
+    return migrate(JSON.parse(text));
   } catch {
     return null;
   }

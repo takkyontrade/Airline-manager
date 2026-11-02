@@ -96,3 +96,19 @@ h3 { font-size: 14px; margin: 14px 0 6px; }
 .meter span { display: block; height: 100%; }
 .tabs button { font-size: 13px; }
 main { grid-template-columns: minmax(0, 1fr) 520px; }
+
+main { grid-template-columns: minmax(0, 1fr) 600px; }
+.timeline-axis { position: relative; height: 16px; margin-left: 150px; font-size: 10px; color: var(--muted); }
+.timeline-axis span { position: absolute; transform: translateX(-50%); }
+.tl-row { display: grid; grid-template-columns: 150px 1fr; align-items: center; gap: 0 0; padding: 3px 0; border-bottom: 1px solid var(--line); }
+.tl-row > .small-text, .tl-row > .editor { grid-column: 1 / -1; }
+.tl-label { font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.tl-bar { position: relative; height: 20px; background: repeating-linear-gradient(90deg, #0d1628 0, #0d1628 calc(100%/19 - 1px), #1a263f calc(100%/19 - 1px), #1a263f calc(100%/19)); border-radius: 3px; }
+.tl-leg { position: absolute; top: 2px; bottom: 2px; border-radius: 3px; font-size: 9px; color: #0b1220; font-weight: 700; overflow: hidden; padding-left: 2px; white-space: nowrap; }
+.editor { margin: 6px 0; }
+.editor input[type=time] { padding: 2px 4px; }
+label.inline { flex-direction: row; align-items: center; gap: 6px; }
+.days { white-space: nowrap; }
+.day { background: #1a263f; color: var(--muted); padding: 1px 4px; font-size: 11px; border-radius: 3px; margin-right: 1px; }
+.day.on { background: var(--accent); color: #fff; }
+input[type=range] { width: 100%; }
