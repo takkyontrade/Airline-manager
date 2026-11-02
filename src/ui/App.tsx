@@ -11,6 +11,7 @@ import { SchedulePanel } from './SchedulePanel';
 import { BrandPanel } from './BrandPanel';
 import { OpsRoom } from './OpsRoom';
 import { CloudPanel } from './CloudPanel';
+import { AirportCard } from './AirportCard';
 
 type Tab = 'routes' | 'schedule' | 'fleet' | 'market' | 'staff' | 'finance' | 'rivals' | 'brand' | 'news';
 const TABS: [Tab, string][] = [
@@ -177,6 +178,7 @@ function Game({ state, setState }: { state: GameState; setState: (s: GameState |
             <button className={routeKind === 'pax' ? 'on' : ''} onClick={() => setRouteKind('pax')}>旅客路線を開設</button>
             <button className={routeKind === 'cargo' ? 'on' : ''} onClick={() => setRouteKind('cargo')}>貨物路線を開設</button>
           </div>
+          {sel && <AirportCard s={state} code={sel} onClose={() => setSel(null)} />}
           <div className="map-hint">
             {sel ? `${AIRPORT_BY_CODE[sel].name}を選択中：結びたい空港をクリック（もう一度クリックで解除）` : '空港を2つ順にクリックして路線を開設 ／ ホイールで拡大、ドラッグで移動'}
           </div>

@@ -188,3 +188,10 @@ header { position: relative; }
   header .muted { font-size: 13px; }
 }
 @media (max-width: 1300px) { .file-buttons .slots-wrap > button { width: 100%; } }
+.airport-card { position: absolute; top: 48px; left: 8px; z-index: 3; width: min(330px, calc(100% - 16px)); max-height: calc(100% - 100px); overflow: auto; background: rgba(17, 26, 44, 0.95); border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 6px; box-shadow: 0 6px 24px #0008; }
+.airport-card .spacer { flex: 1; }
+.kv { border-collapse: collapse; width: 100%; }
+.kv th { text-align: left; font-weight: normal; color: var(--muted); padding: 2px 8px 2px 0; white-space: nowrap; vertical-align: top; }
+.kv td { padding: 2px 0; }
+.airport-card .chip { display: inline-block; margin: 2px 4px 2px 0; }
+.chip.neg { color: var(--bad); }
