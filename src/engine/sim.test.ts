@@ -484,3 +484,18 @@ describe('trunk licence', () => {
     if (!r.ok) expect(r.error).toContain('今は評判47');
   });
 });
+
+describe('planes in the shop', () => {
+  test('flights move to an idle plane when one goes into heavy check', () => {
+    let s = newGame('t', 'HND', 1, { startYear: 2000 });
+    for (let i = 0; i < 2; i++) { let id: string; [s, id] = withListing(s, 'b737-500', 1); s = must(acquireUsed(s, id, 'buy')); }
+    s = must(openRoute(s, 'HND', 'FUK'));
+    s = must(setRoute(s, s.routes[0].id, { targetWeekly: 7 }));
+    const busy = s.planes.find((p) => p.schedule.length > 0)!;
+    const idle = s.planes.find((p) => p.id !== busy.id)!;
+    s = autoSchedule(must(startHeavyCheck(s, busy.id)));
+    expect(s.planes.find((p) => p.id === busy.id)!.schedule).toHaveLength(0);
+    expect(s.planes.find((p) => p.id === idle.id)!.schedule.length).toBeGreaterThan(0);
+    expect(scheduledWeekly(s, s.routes[0].id)).toBe(7);
+  });
+});

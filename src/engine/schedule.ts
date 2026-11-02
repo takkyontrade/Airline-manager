@@ -3,7 +3,8 @@
 import { AIRPORT_BY_CODE, isForeign } from '../data/airports';
 import { econ, yearFrac } from '../data/economy';
 import { canFly, ISLANDS, routeBlockHours, routeDistance, turnaroundHours } from './model';
-import { planeType } from './fleet';
+import { heavyCheckOverdue, planeType } from './fleet';
+import { GROUNDINGS } from '../data/history';
 import type { Circuit, GameState, Leg, Plane, Route, SchedulePolicy } from './types';
 import { fail, ok, rng, type Result } from './util';
 
@@ -211,10 +212,24 @@ export const suits = (p: Plane, r: Route) => !!planeType(p).freighter === (r.kin
  * Each plane flies out-and-back trips from its base. Planes not useful for
  * any route keep an empty schedule.
  */
+/** Can this plane be given flights now? (not in heavy check, repair, conversion, overdue check or grounding) */
+export function schedulable(s: GameState, p: Plane): boolean {
+  if (p.status !== 'active' || heavyCheckOverdue(p)) return false;
+  const t = s.year * 12 + s.month;
+  return !GROUNDINGS.some((g) => g.typeId === p.typeId && t >= g.from[0] * 12 + g.from[1] && t <= g.to[0] * 12 + g.to[1]);
+}
+
+/** True when the timetable no longer matches which planes can fly */
+export function scheduleStale(s: GameState): boolean {
+  return s.planes.some((p) => !p.locked && p.status !== 'onOrder' && (schedulable(s, p) ? p.schedule.length === 0 : p.schedule.length > 0));
+}
+
 export function autoSchedule(s: GameState): GameState {
-  const unlocked = s.planes.filter((p) => !p.locked && p.status !== 'onOrder');
+  const unlocked = s.planes.filter((p) => !p.locked && schedulable(s, p));
+  // planes in the shop give their flights to the others (locked ones keep theirs for when they return)
+  const resting = s.planes.filter((p) => !p.locked && p.status !== 'onOrder' && !schedulable(s, p));
   // targets minus what locked planes already fly
-  const lockedPlanes = s.planes.filter((p) => p.locked);
+  const lockedPlanes = s.planes.filter((p) => p.locked && schedulable(s, p));
   const needs: Need[] = s.routes.map((route) => {
     const flown = lockedPlanes.reduce((n, p) => n + p.schedule.filter((l) => l.routeId === route.id && l.dir === 0).reduce((m, l) => m + legsPerWeek(p, l), 0), 0);
     return { route, remainingWeekly: Math.max(0, route.targetWeekly - flown) };
@@ -349,6 +364,7 @@ export function autoSchedule(s: GameState): GameState {
     }
   }
   for (const p of planes) result.set(p.id, { ...p, schedule: p.schedule.sort((a, b) => a.dep - b.dep) });
+  for (const p of resting) result.set(p.id, { ...p, schedule: [], cycleDays: undefined });
   return { ...s, planes: s.planes.map((p) => result.get(p.id) ?? p) };
 }
 

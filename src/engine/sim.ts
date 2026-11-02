@@ -19,7 +19,7 @@ import { serviceLoans } from './finance';
 import { crewedPlanes, graduateTrainees, traineeCount } from './staff';
 import {
   autoSchedule, baseCostMonthly, dayCount, INITIAL_SLOTS, legMinutes, opsCostMonthly, routeWeekly,
-  simulateDelays, slotAirports, validateRotation,
+  scheduleStale, simulateDelays, slotAirports, validateRotation,
 } from './schedule';
 import type { CabinLayout, GameState, MaintLevel, MonthCosts, MonthReport, Plane, Route, RouteResult, SchedulePolicy } from './types';
 import { fail, formatYen, nextId, ok, rng, withNews, type Result } from './util';
@@ -417,6 +417,8 @@ function beginMonth(s0: GameState): { s: GameState; deliveriesPaid: number } {
       if (r.ok) s = r.state;
     }
   }
+  // planes going into or coming out of the shop: hand their flights to the others
+  if (scheduleStale(s)) s = autoSchedule(s);
   // April: the ministry allocates additional slots at congested airports
   if (s.month === 4) {
     const extra: Record<string, number> = {};

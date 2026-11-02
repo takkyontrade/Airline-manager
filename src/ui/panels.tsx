@@ -9,7 +9,10 @@ import {
   addCodeshare, allianceEligibility, companyRisk, ALLIANCE_FEE_MONTHLY, CODESHARE_FEE_MONTHLY, codeshareEligibility,
   joinAlliance, leaveAlliance, removeCodeshare,
 } from '../engine/sim';
-import { OPS_LEVELS, POLICY_LABEL, POLICY_LEVEL, scheduledWeekly, suits, validateRotation } from '../engine/schedule';
+import { autoSchedule, OPS_LEVELS, POLICY_LABEL, POLICY_LEVEL, scheduledWeekly, suits, validateRotation } from '../engine/schedule';
+
+/** after a plane goes into the shop, give its flights to the others */
+const resched = (r: Result): Result => (r.ok ? { ok: true, state: autoSchedule(r.state) } : r);
 import {
   acquireUsed, disposalTerms, disposePlane, financeLeaseMonthly, heavyCheckDue, heavyCheckOverdue,
   leadMonths, newTypesOnSale, nextCheckIsD, nowYM, OPERATING_TERMS, operatingLeaseRate,
@@ -212,13 +215,13 @@ export function FleetPanel({ s, apply }: { s: GameState; apply: Apply }) {
               {p.status === 'active' && !wet && (
                 <button className="secondary small" onClick={() => {
                   const cost = heavyCheckCost(t, isD, s.year, s.month);
-                  if (confirm(`今月から${isD ? 'Dチェック（2か月）' : 'Cチェック（1か月）'}に入れますか？ 費用 ${formatYen(cost)}`)) apply(startHeavyCheck(s, p.id));
+                  if (confirm(`今月から${isD ? 'Dチェック（2か月）' : 'Cチェック（1か月）'}に入れますか？ 費用 ${formatYen(cost)}`)) apply(resched(startHeavyCheck(s, p.id)));
                 }}>重整備に入れる</button>
               )}
               {p.status === 'active' && !p.lease && conversionsFor(p.typeId, s.year).map((to) => (
                 <button key={to.id} className="secondary small" title={planeAge(p, s.year) < 8 ? '機齢8年以上が対象です' : ''} disabled={planeAge(p, s.year) < 8} onClick={() => {
                   const cost = conversionCostYen(to, s.year, s.month);
-                  if (confirm(`${to.name}に改修しますか？ 費用 ${formatYen(cost)}、${CONVERSION_MONTHS}か月運休します。改修後は貨物路線専用（${to.cargoT}t）になります。`)) apply(startConversion(s, p.id, to.id));
+                  if (confirm(`${to.name}に改修しますか？ 費用 ${formatYen(cost)}、${CONVERSION_MONTHS}か月運休します。改修後は貨物路線専用（${to.cargoT}t）になります。`)) apply(resched(startConversion(s, p.id, to.id)));
                 }}>貨物機に改修（{to.name.replace(/（.*）/, '')}）</button>
               ))}
               {p.status !== 'heavyCheck' && p.status !== 'shop' && (
