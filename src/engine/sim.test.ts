@@ -435,6 +435,13 @@ describe('circuits', () => {
     expect(validateRotation(s, s.planes[0])).toEqual([]);
     for (const r of s.routes) expect(scheduledWeekly(s, r.id)).toBe(7);
   });
+  test('an airport can be visited twice', () => {
+    const s = must(addCircuit(base2000(), ['ITM', 'SDJ', 'CTS', 'SDJ']));
+    expect(s.circuits![0].stops).toEqual(['ITM', 'SDJ', 'CTS', 'SDJ']);
+    expect(s.routes).toHaveLength(2);
+    expect(circuitScheduled(s, s.circuits![0])).toBe(7);
+    expect(s.planes[0].schedule).toHaveLength(4);
+  });
   test('weekly target can be lowered and the circuit removed', () => {
     let s = must(addCircuit(base2000(), ['HND', 'KOJ', 'FUK']));
     const id = s.circuits![0].id;
@@ -448,6 +455,7 @@ describe('circuits', () => {
     const s = base2000();
     expect(addCircuit(s, ['HND', 'FUK']).ok).toBe(false);
     expect(addCircuit(s, ['HND', 'FUK', 'HND']).ok).toBe(false);
+    expect(addCircuit(s, ['HND', 'FUK', 'FUK', 'KOJ']).ok).toBe(false);
   });
   test('closing one leg stops the circuit without breaking the schedule', () => {
     let s = must(addCircuit(base2000(), ['HND', 'KOJ', 'FUK']));

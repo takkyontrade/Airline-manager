@@ -11,7 +11,7 @@ const name = (c: string) => AIRPORT_BY_CODE[c]?.name ?? c;
 /** Triangle / multi-stop rotations: A→B→C→A flown by one plane in a day */
 export function CircuitsBox({ s, apply }: { s: GameState; apply: (r: Result) => void }) {
   const [open, setOpen] = useState(false);
-  const [stops, setStops] = useState<string[]>([s.baseAirport, '', '', '']);
+  const [stops, setStops] = useState<string[]>([s.baseAirport, '', '', '', '']);
   const airports = openAirports(s.year).filter((a) => !a.foreign).sort((a, b) => b.popM - a.popM);
   const types = [...new Set(s.planes.filter((p) => !AIRCRAFT_BY_ID[p.typeId].freighter).map((p) => p.typeId))];
   const circuits = s.circuits ?? [];
@@ -21,12 +21,12 @@ export function CircuitsBox({ s, apply }: { s: GameState; apply: (r: Result) => 
         <strong>周回ルート（三角運航など）</strong>
         <button className="small secondary" onClick={() => setOpen(!open)}>{open ? '閉じる' : '＋ 新しく作る'}</button>
       </div>
-      <p className="muted small-text">1機が A→B→C→A のように回って拠点に戻る運航を、自動ダイヤで組みます。足りない区間の路線は自動で開設されます。</p>
+      <p className="muted small-text">1機が A→B→C→A のように回って拠点に戻る運航を、自動ダイヤで組みます。同じ空港を2回通ることもできます（例：伊丹→仙台→名古屋→仙台→伊丹）。足りない区間の路線は自動で開設されます。</p>
       {open && (
         <div className="circuit-form">
           {stops.map((v, i) => (
             <label key={i}>
-              {i === 0 ? '出発・帰着' : `${i}番目`}{i === 3 && '（任意）'}
+              {i === 0 ? '出発・帰着' : `${i}番目`}{i >= 3 && '（任意）'}
               <select value={v} onChange={(e) => setStops(stops.map((x, k) => (k === i ? e.target.value : x)))}>
                 <option value="">—</option>
                 {airports.map((a) => <option key={a.code} value={a.code}>{a.name}</option>)}
@@ -36,7 +36,7 @@ export function CircuitsBox({ s, apply }: { s: GameState; apply: (r: Result) => 
           <button onClick={() => {
             const r = addCircuit(s, stops, 7);
             apply(r);
-            if (r.ok) { setOpen(false); setStops([s.baseAirport, '', '', '']); }
+            if (r.ok) { setOpen(false); setStops([s.baseAirport, '', '', '', '']); }
           }}>この周回で開設（毎日）</button>
         </div>
       )}

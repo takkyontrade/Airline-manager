@@ -818,8 +818,8 @@ function safetyEvents(s: GameState, flights: Record<string, number>, r: () => nu
  */
 export function addCircuit(s0: GameState, stops: string[], targetWeekly = 7, typeId: string | null = null): Result {
   const clean = stops.filter(Boolean);
-  if (clean.length < 3) return fail('周回ルートには3つ以上の空港が必要です');
-  if (new Set(clean).size !== clean.length) return fail('同じ空港は1回だけ選んでください');
+  if (new Set(clean).size < 3) return fail('周回ルートには3つ以上の異なる空港が必要です');
+  if (clean.some((c, i) => c === clean[(i + 1) % clean.length])) return fail('同じ空港が続かないように選んでください（最後の空港と出発地も別にしてください）');
   if (clean.some((c) => isForeign(c))) return fail('周回ルートは今のところ国内線だけです');
   let s = s0;
   for (let i = 0; i < clean.length; i++) {
