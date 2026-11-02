@@ -203,6 +203,9 @@ function preferredTimes(policy: SchedulePolicy, open: number, close: number, k: 
 
 interface Need { route: Route; remainingWeekly: number }
 
+/** Freighters fly cargo routes, airliners fly passenger routes */
+export const suits = (p: Plane, r: Route) => !!planeType(p).freighter === (r.kind === 'cargo');
+
 /**
  * Rebuild schedules of all unlocked, delivered planes from route targets.
  * Each plane flies out-and-back trips from its base. Planes not useful for
@@ -245,11 +248,12 @@ export function autoSchedule(s: GameState): GameState {
       const days = perWeek >= 7 ? DAILY : spreadDays(perWeek);
       let placed = false;
       // if no plane is based at either end, move an idle plane there
-      if (!planes.some((p) => (p.base === r.from || p.base === r.to) && (!r.typeId || p.typeId === r.typeId) && canFly(planeType(p), r.from, r.to, s.year).ok)) {
-        const idle = planes.find((p) => p.schedule.length === 0 && (!r.typeId || p.typeId === r.typeId) && canFly(planeType(p), r.from, r.to, s.year).ok);
+      if (!planes.some((p) => (p.base === r.from || p.base === r.to) && suits(p, r) && (!r.typeId || p.typeId === r.typeId) && canFly(planeType(p), r.from, r.to, s.year).ok)) {
+        const idle = planes.find((p) => p.schedule.length === 0 && suits(p, r) && (!r.typeId || p.typeId === r.typeId) && canFly(planeType(p), r.from, r.to, s.year).ok);
         if (idle) idle.base = isForeign(r.from) ? r.to : isForeign(r.to) ? r.from : s.crewBases.includes(r.to) ? r.to : r.from;
       }
       for (const p of planes) {
+        if (!suits(p, r)) continue;
         if (r.typeId && p.typeId !== r.typeId) continue;
         if (!canFly(planeType(p), r.from, r.to, s.year).ok) continue;
         if (p.base !== r.from && p.base !== r.to) continue;

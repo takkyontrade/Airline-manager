@@ -13,7 +13,8 @@ export interface Lease {
   endYM: YM; // last month paid
 }
 
-export type PlaneStatus = 'onOrder' | 'active' | 'heavyCheck';
+/** shop = out of service for repair after an incident, or for a freighter conversion */
+export type PlaneStatus = 'onOrder' | 'active' | 'heavyCheck' | 'shop';
 
 export interface Plane {
   id: string;
@@ -35,6 +36,8 @@ export interface Plane {
   schedule: Leg[];
   /** long-haul planes fly a rotation spanning several days (legs' dep can exceed 24h; day masks ignored) */
   cycleDays?: number;
+  /** when in the shop for a conversion: the freighter type it becomes */
+  convertTo?: string;
   /** locked planes keep their schedule when the auto-scheduler runs */
   locked: boolean;
   /** 0..100 */
@@ -69,6 +72,10 @@ export interface Route {
   fareYen: number;
   openedYear: number;
   openedMonth: number;
+  /** cargo routes are flown by freighters only (default: passenger route, which also carries belly cargo) */
+  kind?: 'pax' | 'cargo';
+  /** cargo rate in yen per kg (cargo routes and belly cargo) — null/undefined = market rate */
+  cargoRateYen?: number;
 }
 
 export interface Loan {
@@ -113,6 +120,10 @@ export interface RouteResult {
   share: number;
   revenue: number;
   cost: number;
+  /** tonnes carried (both directions) and cargo revenue (included in revenue) */
+  cargoT?: number;
+  cargoRevenue?: number;
+  cargoMarketT?: number;
 }
 
 export interface MonthCosts {
@@ -129,6 +140,11 @@ export interface MonthCosts {
   lease: number;
   interest: number;
   overhead: number;
+  /** cargo handling */
+  cargo?: number;
+  insurance?: number;
+  /** incident repairs, accident compensation and investigations */
+  safety?: number;
 }
 
 export interface MonthReport {
@@ -188,7 +204,18 @@ export interface GameState {
   alliance?: string | null;
   /** foreign airlines with an individual codeshare agreement */
   codeshares?: string[];
+  /** safety record */
+  safety?: SafetyRecord;
   gameOver: boolean;
   nextId: number;
   seed: number;
+}
+
+export interface SafetyRecord {
+  incidents: number;
+  serious: number;
+  accidents: number;
+  /** passengers stay away until this month after an accident */
+  scareUntilYM?: number;
+  lastAccidentYM?: number;
 }

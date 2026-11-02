@@ -5,7 +5,7 @@
 import { AIRPORT_BY_CODE, isAirportOpen, isForeign, AIRPORTS } from '../data/airports';
 import { ALLIANCES, ALLIANCE_BY_ID } from '../data/alliances';
 import { RIVALS, RIVAL_EVENTS, type Rival } from '../data/rivals';
-import { marketDemand, routeDistance } from './model';
+import { cargoDemandT, marketDemand, routeDistance } from './model';
 import type { GameState } from './types';
 
 export interface Competitor {
@@ -177,4 +177,16 @@ export function partners(s: GameState): Set<string> {
   const out = new Set(s.codeshares ?? []);
   if (s.alliance) for (const id of allianceMembers(s, s.alliance)) out.add(id);
   return out;
+}
+
+/** Rivals' weekly cargo capacity on a pair in tonnes (belly holds, plus freighters on big international markets) */
+export function rivalCargoWeeklyT(s: GameState, a: string, b: string): number {
+  let t = 0;
+  for (const c of competitors(s, a, b)) t += c.weeklyFreq * (c.seats >= 350 ? 20 : c.seats >= 200 ? 12 : c.seats >= 100 ? 2.5 : 0.6);
+  if ((isForeign(a) || isForeign(b)) && s.year >= 1965) {
+    const monthly = cargoDemandT(a, b, s.year, 6);
+    const freighters = Math.floor((monthly * 0.35) / (100 * 4.33));
+    t += freighters * 100;
+  }
+  return t;
 }

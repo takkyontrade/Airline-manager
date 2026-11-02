@@ -1,7 +1,7 @@
 // Aircraft acquisition: new orders, used market, leases, disposal, heavy checks.
-import { AIRCRAFT_TYPES, AIRCRAFT_BY_ID, type AircraftType } from '../data/aircraft';
+import { AIRCRAFT_TYPES, AIRCRAFT_BY_ID, conversionsFor, type AircraftType } from '../data/aircraft';
 import { econ, loanRate, yearFrac } from '../data/economy';
-import { HEAVY_CHECK_HOURS, heavyCheckCost, heavyCheckMonths, newPriceYen, valueYen } from './model';
+import { CONVERSION_MONTHS, conversionCostYen, HEAVY_CHECK_HOURS, heavyCheckCost, heavyCheckMonths, newPriceYen, valueYen } from './model';
 import { ym, ymMonth, ymYear, type GameState, type Plane, type UsedListing } from './types';
 import { fail, formatYen, nextId, ok, rng, spend, withNews, type Result } from './util';
 
@@ -12,7 +12,7 @@ export const ymLabel = (t: number) => `${ymYear(t)}年${ymMonth(t)}月`;
 
 // ---- new aircraft ---------------------------------------------------------
 
-export const newTypesOnSale = (year: number) => AIRCRAFT_TYPES.filter((t) => year >= t.introYear && year <= t.endYear);
+export const newTypesOnSale = (year: number) => AIRCRAFT_TYPES.filter((t) => !t.convertedOnly && year >= t.introYear && year <= t.endYear);
 
 /** Months from order to delivery. Launch years have long backlogs. */
 export function leadMonths(t: AircraftType, year: number): number {
@@ -194,7 +194,7 @@ export function disposePlane(s: GameState, planeId: string): Result {
   const p = s.planes.find((x) => x.id === planeId);
   if (!p) return fail('機体が見つかりません');
   if (p.status === 'onOrder') return cancelOrder(s, planeId);
-  if (p.status === 'heavyCheck') return fail('重整備中の機体は手放せません');
+  if (p.status === 'heavyCheck' || p.status === 'shop') return fail('整備・改修中の機体は手放せません');
   const t = planeType(p);
   const terms = disposalTerms(s, p);
   const text = terms.cash >= 0
@@ -221,4 +221,19 @@ export function startHeavyCheck(s: GameState, planeId: string): Result {
   const planes = s.planes.map((x) => (x.id === planeId ? { ...x, status: 'heavyCheck' as const, readyYM: nowYM(s) + months } : x));
   return ok(withNews(spend({ ...s, planes }, 'heavyChecks', cost),
     `${t.name}（${p.regNo}）が${isD ? '重整備（Dチェック）' : '重整備（Cチェック）'}に入りました（${months}か月、${formatYen(cost)}）。`));
+}
+
+/** Send a passenger plane to be converted into a freighter (real conversion programs only) */
+export function startConversion(s: GameState, planeId: string, toTypeId: string): Result {
+  const p = s.planes.find((x) => x.id === planeId);
+  if (!p) return fail('機体が見つかりません');
+  if (p.status !== 'active') return fail('運航中の機体だけ改修に出せます');
+  if (p.lease) return fail('リース機は改修できません（自社保有機のみ）');
+  const to = conversionsFor(p.typeId, s.year).find((t) => t.id === toTypeId);
+  if (!to) return fail('この機体に使える貨物機改修プログラムがありません');
+  if (planeAge(p, s.year) < 8) return fail('改修は機齢8年以上の機体が対象です');
+  const cost = conversionCostYen(to, s.year, s.month);
+  if (s.cash < cost) return fail(`資金が足りません（改修費 ${formatYen(cost)}）`);
+  const planes = s.planes.map((x) => (x.id === planeId ? { ...x, status: 'shop' as const, readyYM: nowYM(s) + CONVERSION_MONTHS, convertTo: to.id, schedule: [], locked: false, cycleDays: undefined } : x));
+  return ok(withNews(spend({ ...s, planes }, 'heavyChecks', cost), `${planeType(p).name}（${p.regNo}）を${to.name}への改修に出しました（${CONVERSION_MONTHS}か月、${formatYen(cost)}）。`));
 }

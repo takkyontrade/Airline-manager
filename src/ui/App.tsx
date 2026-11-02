@@ -61,6 +61,7 @@ function NewGame({ onStart }: { onStart: (s: GameState) => void }) {
 function Game({ state, setState }: { state: GameState; setState: (s: GameState | null) => void }) {
   const [tab, setTab] = useState<Tab>('routes');
   const [sel, setSel] = useState<string | null>(null);
+  const [routeKind, setRouteKind] = useState<'pax' | 'cargo'>('pax');
   const [hoverRoute, setHoverRoute] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -79,8 +80,8 @@ function Game({ state, setState }: { state: GameState; setState: (s: GameState |
     if (sel === code) return setSel(null);
     const a = AIRPORT_BY_CODE[sel], b = AIRPORT_BY_CODE[code];
     const km = Math.round(routeDistance(sel, code));
-    if (confirm(`${a.name}〜${b.name}線（${km}km）を開設しますか？`)) {
-      const r = openRoute(state, sel, code);
+    if (confirm(`${a.name}〜${b.name}${routeKind === 'cargo' ? '貨物線' : '線'}（${km}km）を開設しますか？`)) {
+      const r = openRoute(state, sel, code, { kind: routeKind });
       apply(r);
       if (r.ok) setTab('routes');
     }
@@ -115,6 +116,10 @@ function Game({ state, setState }: { state: GameState; setState: (s: GameState |
       <main>
         <section className="map-wrap">
           <MapView state={state} selected={sel} onAirportClick={onAirportClick} highlightRoute={hoverRoute} />
+          <div className="map-kind seg">
+            <button className={routeKind === 'pax' ? 'on' : ''} onClick={() => setRouteKind('pax')}>旅客路線を開設</button>
+            <button className={routeKind === 'cargo' ? 'on' : ''} onClick={() => setRouteKind('cargo')}>貨物路線を開設</button>
+          </div>
           <div className="map-hint">
             {sel ? `${AIRPORT_BY_CODE[sel].name}を選択中：結びたい空港をクリック（もう一度クリックで解除）` : '空港を2つ順にクリックして路線を開設 ／ ホイールで拡大、ドラッグで移動'}
           </div>

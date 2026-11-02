@@ -222,9 +222,70 @@ export function routeReferenceFare(from: string, to: string, year: number, month
   return isIntlRoute(from, to) ? intlReferenceFare(km, year, month) : referenceFare(km, year, month);
 }
 
+// ---- cargo ------------------------------------------------------------------
+
+/** Monthly one-direction air cargo market in tonnes (Japan exports make international cargo heavy) */
+export function cargoDemandT(from: string, to: string, year: number, month: number): number {
+  const intl = isIntlRoute(from, to);
+  const t = yearFrac(year, month);
+  // air cargo grew faster than passengers until the 2000s (electronics, express parcels)
+  const intensity = Math.min(1, 0.45 + (t - 1960) * 0.014);
+  return marketDemand(from, to, year, month) * (intl ? 0.06 : 0.009) * intensity;
+}
+
+/** Market cargo rate in yen per kg */
+export function cargoReferenceRate(from: string, to: string, year: number, month: number): number {
+  const km = routeDistance(from, to);
+  const t = yearFrac(year, month);
+  if (isIntlRoute(from, to)) {
+    const usd = (0.6 + 0.0003 * km) * (econ.usCpi(t) / econ.usCpi(1960)) * econ.intlRealFare(t);
+    return Math.round(usd * econ.jpyPerUsd(t));
+  }
+  return Math.round((40 + 0.06 * km) * econ.jpCpi(t) * realFareIndex(t));
+}
+
+/** Handling cost per kg */
+export const cargoHandlingPerKg = (intl: boolean, year: number, month: number) => (intl ? 4 : 3) * econ.jpCpi(yearFrac(year, month));
+
+// ---- safety -------------------------------------------------------------------
+
+// accidents with loss of the aircraft, per departure, industry average
+const ACCIDENT_RATE: [number, number][] = [
+  [1960, 6e-6], [1970, 3e-6], [1980, 1.5e-6], [1990, 1e-6], [2000, 0.6e-6], [2010, 0.35e-6], [2027, 0.25e-6],
+];
+export function accidentRatePerFlight(year: number): number {
+  for (let i = 1; i < ACCIDENT_RATE.length; i++) {
+    const [y1, v1] = ACCIDENT_RATE[i];
+    const [y0, v0] = ACCIDENT_RATE[i - 1];
+    if (year <= y1) return year <= y0 ? v0 : v0 + ((v1 - v0) * (year - y0)) / (y1 - y0);
+  }
+  return ACCIDENT_RATE[ACCIDENT_RATE.length - 1][1];
+}
+/** Serious incidents (aircraft damaged, out of service) and minor ones, relative to accidents */
+export const SERIOUS_PER_ACCIDENT = 15;
+export const MINOR_PER_ACCIDENT = 250;
+
+/**
+ * Risk multiplier for one aircraft compared with the industry average.
+ * Condition (maintenance) matters most; old airframes, a mixed fleet and a
+ * thin operations department add risk. It never reaches zero.
+ */
+export function riskFactor(condition: number, ageYears: number, fleetTypes: number, opsLevel: number, maintMul: number): number {
+  const cond = Math.exp((86 - condition) / 24);
+  const age = 1 + 0.02 * Math.max(0, ageYears - 10);
+  const mix = 1 + 0.04 * Math.max(0, fleetTypes - 1);
+  const ops = 1 - 0.05 * opsLevel;
+  return Math.max(0.3, cond * age * mix * ops * maintMul);
+}
+
 // ---- prices -------------------------------------------------------------
 
 export function newPriceYen(t: AircraftType, year: number, month: number): number {
+  // converted freighters are valued like a mid-life airliner plus the conversion
+  if (t.convertedOnly && t.conversion) {
+    const base = AIRCRAFT_BY_ID[t.conversion.from];
+    return newPriceYen(base, Math.min(year, base.endYear), month) * 0.45 + conversionCostYen(t, year, month);
+  }
   const tf = yearFrac(year, month);
   const inflation = econ.usCpi(tf) / econ.usCpi(t.introYear);
   return t.priceMUsd * 1e6 * inflation * econ.jpyPerUsd(tf);
@@ -238,6 +299,14 @@ export function valueYen(t: AircraftType, ageYears: number, year: number, month:
   const factor = Math.max(0.2, 1 - 0.04 * ageYears);
   return base * factor;
 }
+
+/** Cost of a passenger-to-freighter conversion */
+export function conversionCostYen(t: AircraftType, year: number, month: number): number {
+  if (!t.conversion) return 0;
+  const tf = yearFrac(year, month);
+  return t.conversion.costMUsd * 1e6 * (econ.usCpi(tf) / econ.usCpi(t.conversion.since)) * econ.jpyPerUsd(tf);
+}
+export const CONVERSION_MONTHS = 4;
 
 export const LEASE_RATE_MONTHLY = 0.011;
 
@@ -255,13 +324,15 @@ export function flightCost(t: AircraftType, km: number, year: number, month: num
   const fx = econ.jpyPerUsd(tf);
   const fuelPerKgUsd = econ.fuelUsdPerGal(tf) / 3.03;
   const fuelPremium = t.propulsion === 'piston' ? 1.4 : 1; // avgas costs more
+  // freighters pay landing fees by weight: treat each tonne of payload like 3 seats
+  const seats = t.freighter ? (t.cargoT ?? 0) * 3 : t.seats;
   return {
     fuel: bh * t.fuelKgH * fuelPerKgUsd * fuelPremium * fx,
     maintenance: bh * t.maintUsdH * econ.usCpi(tf) * fx,
     airport: intl
       // half the landings are in Japan (expensive) and half abroad (billed in dollars)
-      ? 0.5 * (t.seats * 400 + 30000) * econ.jpCpi(tf) + 0.5 * (t.seats * 1.5 + 500) * (econ.usCpi(tf) / econ.usCpi(1960)) * fx
-        : (t.seats * 200 + 8000) * econ.jpCpi(tf), // landing, navigation, handling
+      ? 0.5 * (seats * 400 + 30000) * econ.jpCpi(tf) + 0.5 * (seats * 1.5 + 500) * (econ.usCpi(tf) / econ.usCpi(1960)) * fx
+      : (seats * 200 + 8000) * econ.jpCpi(tf), // landing, navigation, handling
   };
 }
 

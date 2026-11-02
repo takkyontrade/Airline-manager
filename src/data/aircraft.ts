@@ -24,6 +24,16 @@ export interface AircraftType {
   cabinCrew: number;
   maintUsdH: number; // 1時間あたり整備費（1960年のドル換算）
   comfort: number; // 快適さ 0.6〜1.2
+  /** cargo capacity in tonnes: belly hold for airliners, main deck for freighters (default from size) */
+  cargoT?: number;
+  /** a freighter: no passengers */
+  freighter?: boolean;
+  /** shares a pilot type rating with this type (e.g. 747-400F with 747-400) */
+  rating?: string;
+  /** only available by converting a passenger plane (not built new) */
+  convertedOnly?: boolean;
+  /** passenger-to-freighter conversion program that produces this type */
+  conversion?: { from: string; since: number; until?: number; costMUsd: number };
 }
 
 export const AIRCRAFT_TYPES: AircraftType[] = [
@@ -88,8 +98,43 @@ export const AIRCRAFT_TYPES: AircraftType[] = [
   { id: 'b737-8', name: 'ボーイング737 MAX 8', maker: 'ボーイング', propulsion: 'jet', silhouette: 'narrowJet', introYear: 2017, endYear: 2027, seats: 170, rangeKm: 6500, speedKmh: 840, fuelKgH: 2100, priceMUsd: 52, minRunwayM: 2100, cockpitCrew: 2, cabinCrew: 4, maintUsdH: 170, comfort: 1.12 },
   { id: 'b787-10', name: 'ボーイング787-10', maker: 'ボーイング', propulsion: 'jet', silhouette: 'wideTwin', introYear: 2019, endYear: 2027, seats: 400, rangeKm: 11900, speedKmh: 900, fuelKgH: 6000, priceMUsd: 160, minRunwayM: 2900, cockpitCrew: 2, cabinCrew: 11, maintUsdH: 250, comfort: 1.2 },
   { id: 'a350-1000', name: 'エアバスA350-1000', maker: 'エアバス', propulsion: 'jet', silhouette: 'wideTwin', introYear: 2018, endYear: 2027, seats: 400, rangeKm: 16000, speedKmh: 900, fuelKgH: 6600, priceMUsd: 180, minRunwayM: 2800, cockpitCrew: 2, cabinCrew: 11, maintUsdH: 270, comfort: 1.22 },
+  // ---- 貨物機（新造の貨物型と、旅客機からの改造）
+  { id: 'dc8f', name: 'DC-8F（貨物型）', maker: 'ダグラス', propulsion: 'jet', silhouette: 'quadJet', introYear: 1963, endYear: 1972, seats: 0, rangeKm: 6000, speedKmh: 870, fuelKgH: 6600, priceMUsd: 6.0, minRunwayM: 2700, cockpitCrew: 3, cabinCrew: 0, maintUsdH: 360, comfort: 1, cargoT: 40, freighter: true, rating: 'dc8', conversion: { from: 'dc8', since: 1978, until: 1995, costMUsd: 4 } },
+  { id: 'b707-320c', name: 'ボーイング707-320C（貨物型）', maker: 'ボーイング', propulsion: 'jet', silhouette: 'quadJet', introYear: 1963, endYear: 1979, seats: 0, rangeKm: 6000, speedKmh: 880, fuelKgH: 6800, priceMUsd: 6.0, minRunwayM: 2700, cockpitCrew: 3, cabinCrew: 0, maintUsdH: 360, comfort: 1, cargoT: 40, freighter: true, rating: 'b707', conversion: { from: 'b707', since: 1975, until: 1990, costMUsd: 3 } },
+  { id: 'b727-200f', name: 'ボーイング727-200F（改造貨物機）', maker: 'ボーイング', propulsion: 'jet', silhouette: 'triJet', introYear: 1983, endYear: 2010, seats: 0, rangeKm: 3500, speedKmh: 860, fuelKgH: 4700, priceMUsd: 0, minRunwayM: 2000, cockpitCrew: 3, cabinCrew: 0, maintUsdH: 280, comfort: 1, cargoT: 22, freighter: true, rating: 'b727-200', convertedOnly: true, conversion: { from: 'b727-200', since: 1983, until: 2010, costMUsd: 2.5 } },
+  { id: 'a300b4f', name: 'エアバスA300B4F（改造貨物機）', maker: 'エアバス', propulsion: 'jet', silhouette: 'wideTwin', introYear: 1985, endYear: 2012, seats: 0, rangeKm: 4000, speedKmh: 850, fuelKgH: 6100, priceMUsd: 0, minRunwayM: 2400, cockpitCrew: 3, cabinCrew: 0, maintUsdH: 500, comfort: 1, cargoT: 40, freighter: true, rating: 'a300', convertedOnly: true, conversion: { from: 'a300', since: 1985, until: 2012, costMUsd: 5 } },
+  { id: 'b747-200f', name: 'ボーイング747-200F', maker: 'ボーイング', propulsion: 'jet', silhouette: 'jumbo', introYear: 1972, endYear: 1991, seats: 0, rangeKm: 8000, speedKmh: 900, fuelKgH: 13800, priceMUsd: 32, minRunwayM: 3200, cockpitCrew: 3, cabinCrew: 0, maintUsdH: 840, comfort: 1, cargoT: 110, freighter: true, rating: 'b747-200b' },
+  { id: 'b747-200sf', name: 'ボーイング747-200SF（改造貨物機）', maker: 'ボーイング', propulsion: 'jet', silhouette: 'jumbo', introYear: 1988, endYear: 2010, seats: 0, rangeKm: 7500, speedKmh: 900, fuelKgH: 13800, priceMUsd: 0, minRunwayM: 3200, cockpitCrew: 3, cabinCrew: 0, maintUsdH: 840, comfort: 1, cargoT: 100, freighter: true, rating: 'b747-200b', convertedOnly: true, conversion: { from: 'b747-200b', since: 1988, until: 2010, costMUsd: 18 } },
+  { id: 'md11f', name: 'MD-11F', maker: 'マクドネル・ダグラス', propulsion: 'jet', silhouette: 'wideTri', introYear: 1991, endYear: 2000, seats: 0, rangeKm: 7200, speedKmh: 880, fuelKgH: 8000, priceMUsd: 100, minRunwayM: 2900, cockpitCrew: 2, cabinCrew: 0, maintUsdH: 500, comfort: 1, cargoT: 90, freighter: true },
+  { id: 'b747-400f', name: 'ボーイング747-400F', maker: 'ボーイング', propulsion: 'jet', silhouette: 'jumbo', introYear: 1993, endYear: 2009, seats: 0, rangeKm: 8200, speedKmh: 910, fuelKgH: 11800, priceMUsd: 150, minRunwayM: 3100, cockpitCrew: 2, cabinCrew: 0, maintUsdH: 770, comfort: 1, cargoT: 112, freighter: true, rating: 'b747-400' },
+  { id: 'a300-600f', name: 'エアバスA300-600F', maker: 'エアバス', propulsion: 'jet', silhouette: 'wideTwin', introYear: 1994, endYear: 2007, seats: 0, rangeKm: 4800, speedKmh: 850, fuelKgH: 6300, priceMUsd: 60, minRunwayM: 2400, cockpitCrew: 2, cabinCrew: 0, maintUsdH: 450, comfort: 1, cargoT: 48, freighter: true, rating: 'a300-600r' },
+  { id: 'b767-300f', name: 'ボーイング767-300F', maker: 'ボーイング', propulsion: 'jet', silhouette: 'wideTwin', introYear: 1995, endYear: 2027, seats: 0, rangeKm: 6000, speedKmh: 850, fuelKgH: 5400, priceMUsd: 70, minRunwayM: 2700, cockpitCrew: 2, cabinCrew: 0, maintUsdH: 300, comfort: 1, cargoT: 52, freighter: true, rating: 'b767-300er' },
+  { id: 'b747-400bcf', name: 'ボーイング747-400BCF（改造貨物機）', maker: 'ボーイング', propulsion: 'jet', silhouette: 'jumbo', introYear: 2005, endYear: 2027, seats: 0, rangeKm: 7600, speedKmh: 910, fuelKgH: 11800, priceMUsd: 0, minRunwayM: 3100, cockpitCrew: 2, cabinCrew: 0, maintUsdH: 770, comfort: 1, cargoT: 108, freighter: true, rating: 'b747-400', convertedOnly: true, conversion: { from: 'b747-400', since: 2005, until: 2027, costMUsd: 25 } },
+  { id: 'b767-300bcf', name: 'ボーイング767-300BCF（改造貨物機）', maker: 'ボーイング', propulsion: 'jet', silhouette: 'wideTwin', introYear: 2008, endYear: 2027, seats: 0, rangeKm: 5800, speedKmh: 850, fuelKgH: 5400, priceMUsd: 0, minRunwayM: 2700, cockpitCrew: 2, cabinCrew: 0, maintUsdH: 300, comfort: 1, cargoT: 50, freighter: true, rating: 'b767-300er', convertedOnly: true, conversion: { from: 'b767-300er', since: 2008, until: 2027, costMUsd: 14 } },
+  { id: 'b777f', name: 'ボーイング777F', maker: 'ボーイング', propulsion: 'jet', silhouette: 'wideTwin', introYear: 2009, endYear: 2027, seats: 0, rangeKm: 9000, speedKmh: 900, fuelKgH: 7600, priceMUsd: 170, minRunwayM: 3100, cockpitCrew: 2, cabinCrew: 0, maintUsdH: 330, comfort: 1, cargoT: 102, freighter: true, rating: 'b777-200er' },
+  { id: 'b747-8f', name: 'ボーイング747-8F', maker: 'ボーイング', propulsion: 'jet', silhouette: 'jumbo', introYear: 2011, endYear: 2023, seats: 0, rangeKm: 8100, speedKmh: 910, fuelKgH: 10600, priceMUsd: 180, minRunwayM: 3100, cockpitCrew: 2, cabinCrew: 0, maintUsdH: 700, comfort: 1, cargoT: 134, freighter: true },
+  { id: 'a330-300p2f', name: 'エアバスA330-300P2F（改造貨物機）', maker: 'エアバス', propulsion: 'jet', silhouette: 'wideTwin', introYear: 2017, endYear: 2027, seats: 0, rangeKm: 6000, speedKmh: 870, fuelKgH: 5900, priceMUsd: 0, minRunwayM: 2500, cockpitCrew: 2, cabinCrew: 0, maintUsdH: 300, comfort: 1, cargoT: 61, freighter: true, rating: 'a330-300', convertedOnly: true, conversion: { from: 'a330-300', since: 2017, until: 2027, costMUsd: 20 } },
+  { id: 'b737-800bcf', name: 'ボーイング737-800BCF（改造貨物機）', maker: 'ボーイング', propulsion: 'jet', silhouette: 'narrowJet', introYear: 2018, endYear: 2027, seats: 0, rangeKm: 3700, speedKmh: 840, fuelKgH: 2500, priceMUsd: 0, minRunwayM: 2100, cockpitCrew: 2, cabinCrew: 0, maintUsdH: 176, comfort: 1, cargoT: 23, freighter: true, rating: 'b737-800', convertedOnly: true, conversion: { from: 'b737-800', since: 2018, until: 2027, costMUsd: 5 } },
+  { id: 'b777-300ersf', name: 'ボーイング777-300ERSF（改造貨物機）', maker: 'ボーイング', propulsion: 'jet', silhouette: 'wideTwin', introYear: 2023, endYear: 2027, seats: 0, rangeKm: 7400, speedKmh: 900, fuelKgH: 8000, priceMUsd: 0, minRunwayM: 3100, cockpitCrew: 2, cabinCrew: 0, maintUsdH: 330, comfort: 1, cargoT: 100, freighter: true, rating: 'b777-300er', convertedOnly: true, conversion: { from: 'b777-300er', since: 2023, until: 2027, costMUsd: 35 } },
 ];
 
 export const AIRCRAFT_BY_ID: Record<string, AircraftType> = Object.fromEntries(
   AIRCRAFT_TYPES.map((t) => [t.id, t]),
 );
+
+/** Cargo capacity in tonnes (belly hold for airliners) */
+export function cargoCapacity(t: AircraftType): number {
+  if (t.cargoT !== undefined) return t.cargoT;
+  if (t.seats >= 350) return 20;
+  if (t.seats >= 200) return 12;
+  if (t.propulsion === 'jet') return t.seats >= 100 ? 2.5 : 1;
+  return t.seats >= 50 ? 0.8 : 0.3;
+}
+
+/** Pilot type rating group */
+export const ratingOf = (typeId: string) => AIRCRAFT_BY_ID[typeId]?.rating ?? typeId;
+
+/** Freighter types that a passenger type can be converted into in a given year */
+export function conversionsFor(typeId: string, year: number): AircraftType[] {
+  return AIRCRAFT_TYPES.filter((t) => t.conversion && t.conversion.from === typeId && year >= t.conversion.since && year <= (t.conversion.until ?? 9999));
+}

@@ -4,15 +4,16 @@
 import { AIRPORTS, AIRPORT_BY_CODE, isAirportOpen, isForeign } from '../data/airports';
 import { ALLIANCE_BY_ID } from '../data/alliances';
 import { RIVAL_BY_ID } from '../data/rivals';
-import { AIRCRAFT_TYPES } from '../data/aircraft';
+import { AIRCRAFT_BY_ID, AIRCRAFT_TYPES, cargoCapacity } from '../data/aircraft';
 import { econ, yearFrac } from '../data/economy';
 import {
   ADMIN_SHARE, blockHours, cabinCostMonthly, flightCost, fuelFactor, groundCostPerPax,
   HEAVY_CHECK_HOURS, MAINT_LEVELS, maintAgeFactor,
+  accidentRatePerFlight, cargoDemandT, cargoHandlingPerKg, cargoReferenceRate, MINOR_PER_ACCIDENT, riskFactor, SERIOUS_PER_ACCIDENT,
   marketDemand, intlDemand, intlGatewayShare, isIntlRoute, overheadMonthly, pilotWage, routeReferenceFare, routeDistance, SALES_COMMISSION,
 } from './model';
 import {
-  heavyCheckDue, heavyCheckOverdue, nowYM, planeAge, planeType, refreshUsedMarket, startHeavyCheck, ymLabel,
+  heavyCheckDue, heavyCheckOverdue, nowYM, planeValue, planeAge, planeType, refreshUsedMarket, startHeavyCheck, ymLabel,
 } from './fleet';
 import { serviceLoans } from './finance';
 import { crewedPlanes, graduateTrainees, traineeCount } from './staff';
@@ -22,7 +23,7 @@ import {
 } from './schedule';
 import type { GameState, MaintLevel, MonthCosts, MonthReport, Plane, Route, RouteResult, SchedulePolicy } from './types';
 import { fail, formatYen, nextId, ok, rng, withNews, type Result } from './util';
-import { allianceMembers, isTrunk, competitors, pairKey, partners, updatePressure, type Competitor } from './rivals';
+import { allianceMembers, isTrunk, competitors, pairKey, partners, rivalCargoWeeklyT, updatePressure, type Competitor } from './rivals';
 import { fareBand, GROUNDINGS, HISTORY_NEWS, RAIL_OPENINGS, DEMAND_EVENTS, routeLicensing } from '../data/history';
 import { RIVAL_EVENTS } from '../data/rivals';
 
@@ -127,23 +128,25 @@ export function routeApproval(s: GameState, from: string, to: string): { ok: boo
 export const planesOnRoute = (s: GameState, routeId: string) => s.planes.filter((p) => p.schedule.some((l) => l.routeId === routeId));
 
 /** `skipLicense` is for tests and sandbox tools only */
-export function openRoute(s: GameState, from: string, to: string, opts: { skipLicense?: boolean } = {}): Result {
+export function openRoute(s: GameState, from: string, to: string, opts: { skipLicense?: boolean; kind?: 'pax' | 'cargo' } = {}): Result {
+  const kind = opts.kind ?? 'pax';
   if (from === to) return fail('同じ空港同士は結べません');
   const a = AIRPORT_BY_CODE[from];
   const b = AIRPORT_BY_CODE[to];
   if (!a || !b) return fail('空港が見つかりません');
   if (!isAirportOpen(a, s.year) || !isAirportOpen(b, s.year)) return fail('まだ開港していない空港があります');
-  if (s.routes.some((r) => (r.from === from && r.to === to) || (r.from === to && r.to === from)))
-    return fail('すでに開設済みの路線です');
+  if (s.routes.some((r) => (r.kind ?? 'pax') === kind && ((r.from === from && r.to === to) || (r.from === to && r.to === from))))
+    return fail(kind === 'cargo' ? 'すでに開設済みの貨物路線です' : 'すでに開設済みの路線です');
   if (a.foreign && b.foreign) return fail('外国の空港同士は結べません（日本発着の路線のみ）');
-  const approval = routeApproval(s, from, to);
+  // domestic cargo routes were not restricted like passenger trunk routes
+  const approval = kind === 'cargo' && !isIntlRoute(from, to) ? { ok: true, reason: '' } : routeApproval(s, from, to);
   if (!approval.ok && !opts.skipLicense) return fail(approval.reason);
   const [id, s2] = nextId(s, 'R');
   const route: Route = {
     id, from, to, targetWeekly: 7, typeId: null, policy: 'pack', fareYen: routeReferenceFare(from, to, s.year, s.month),
-    openedYear: s.year, openedMonth: s.month,
+    openedYear: s.year, openedMonth: s.month, kind,
   };
-  return ok(autoSchedule(withNews({ ...s2, routes: [...s2.routes, route] }, `${a.name}〜${b.name}線を開設しました。`)));
+  return ok(autoSchedule(withNews({ ...s2, routes: [...s2.routes, route] }, `${a.name}〜${b.name}${kind === 'cargo' ? '貨物線' : '線'}を開設しました。`)));
 }
 
 export function closeRoute(s: GameState, routeId: string): Result {
@@ -156,7 +159,7 @@ export function closeRoute(s: GameState, routeId: string): Result {
   }, `${AIRPORT_BY_CODE[r.from].name}〜${AIRPORT_BY_CODE[r.to].name}線を廃止しました。`)));
 }
 
-export type RoutePatch = Partial<{ fareYen: number; targetWeekly: number; typeId: string | null; policy: SchedulePolicy }>;
+export type RoutePatch = Partial<{ fareYen: number; targetWeekly: number; typeId: string | null; policy: SchedulePolicy; cargoRateYen: number }>;
 
 export function setRoute(s: GameState, routeId: string, patch: RoutePatch): Result {
   const r = s.routes.find((x) => x.id === routeId);
@@ -164,6 +167,7 @@ export function setRoute(s: GameState, routeId: string, patch: RoutePatch): Resu
   const next = { ...r, ...patch };
   next.targetWeekly = Math.max(0, Math.min(140, Math.round(next.targetWeekly)));
   next.fareYen = Math.max(100, Math.round(next.fareYen / 10) * 10);
+  if (next.cargoRateYen !== undefined) next.cargoRateYen = Math.max(1, Math.round(next.cargoRateYen));
   const band = fareBand(s.year);
   if (band && patch.fareYen !== undefined) {
     const ref = routeReferenceFare(r.from, r.to, s.year, s.month);
@@ -256,7 +260,9 @@ export function routeMarket(s: GameState, route: Route, fly = flyablePlanes(s)):
   const repF = (s.reputation / 50) ** 0.3;
   const otpF = 0.8 + 0.25 * lastOnTime(s, route.id);
   const priceRatio = route.fareYen / ref;
-  const aUs = effFreq > 0 ? effFreq ** 0.8 * priceRatio ** -2 * routeComfort(wk.legs) * repF * otpF : 0;
+  // after an accident, travellers avoid the airline for a while
+  const scare = (s.safety?.scareUntilYM ?? -1) >= nowYM(s) ? 0.8 : 1;
+  const aUs = effFreq > 0 ? effFreq ** 0.8 * priceRatio ** -2 * routeComfort(wk.legs) * repF * otpF * scare : 0;
   let aRivals = 0;
   let rivalPriceSum = 0;
   let rivalFreq = 0;
@@ -274,6 +280,52 @@ export function routeMarket(s: GameState, route: Route, fly = flyablePlanes(s)):
   const freqF = 0.6 + 0.4 * Math.min(1.3, totalFreq / (intl ? 7 : 14));
   const marketOneWay = base * avgPriceRatio ** -1.1 * freqF;
   return { marketOneWay, share, rivals, refFare: ref, weeklyRt: wk.roundTrips, connecting: connecting * avgPriceRatio ** -1.1 * freqF, partnerIds };
+}
+
+// ---- cargo ------------------------------------------------------------------
+
+export interface CargoResult { t: number; rev: number; marketT: number; share: number; rate: number }
+
+/**
+ * Air cargo on each route this month. Our routes on the same airport pair
+ * (passenger bellies and freighters) sell together against the rivals and the
+ * tonnage is split by capacity.
+ */
+export function cargoResults(s: GameState, fly = flyablePlanes(s), rand: () => number = () => 0.5): Map<string, CargoResult> {
+  const byPair = new Map<string, { routes: { route: Route; capW: number; capM: number }[] }>();
+  for (const route of s.routes) {
+    const wk = routeWeekly(s, route, fly);
+    let capW = 0, capM = 0;
+    for (const { plane, perWeek } of wk.legs) {
+      const t = planeType(plane);
+      const c = cargoCapacity(t);
+      capW += perWeek * c * (t.freighter ? 1.3 : 1);
+      capM += perWeek * c * WEEKS_PER_MONTH;
+    }
+    const k = pairKey(route.from, route.to);
+    const g = byPair.get(k) ?? { routes: [] };
+    g.routes.push({ route, capW, capM });
+    byPair.set(k, g);
+  }
+  const out = new Map<string, CargoResult>();
+  for (const g of byPair.values()) {
+    const { from, to } = g.routes[0].route;
+    const marketT = cargoDemandT(from, to, s.year, s.month) * 2;
+    const ref = cargoReferenceRate(from, to, s.year, s.month);
+    const capW = g.routes.reduce((n, x) => n + x.capW, 0);
+    const capM = g.routes.reduce((n, x) => n + x.capM, 0);
+    const rate = capW > 0 ? g.routes.reduce((n, x) => n + x.capW * (x.route.cargoRateYen ?? ref), 0) / capW : ref;
+    const pr = rate / ref;
+    const ours = capW ** 0.9 * pr ** -1.5 * (s.reputation / 50) ** 0.3;
+    const theirs = rivalCargoWeeklyT(s, from, to) ** 0.9;
+    const share = ours + theirs > 0 ? ours / (ours + theirs) : 0;
+    const carried = Math.min(marketT * share * pr ** -0.5 * (0.9 + rand() * 0.2), capM * 0.8);
+    for (const x of g.routes) {
+      const t = capM > 0 ? (carried * x.capM) / capM : 0;
+      out.set(x.route.id, { t, rev: t * 1000 * (x.route.cargoRateYen ?? ref), marketT, share, rate: x.route.cargoRateYen ?? ref });
+    }
+  }
+  return out;
 }
 
 // ---- monthly simulation -------------------------------------------------
@@ -299,6 +351,17 @@ function beginMonth(s0: GameState): { s: GameState; deliveriesPaid: number } {
     if (p.status === 'heavyCheck' && p.readyYM <= now) {
       s = withNews(s, `${t.name}（${p.regNo}）が重整備を終えて復帰しました。`);
       planes.push({ ...p, status: 'active', condition: Math.min(100, p.condition + 25), hoursSinceHeavy: 0, heavyChecks: p.heavyChecks + 1 });
+      continue;
+    }
+    if (p.status === 'shop' && p.readyYM <= now) {
+      if (p.convertTo) {
+        const to = AIRCRAFT_BY_ID[p.convertTo];
+        s = withNews(s, `${t.name}（${p.regNo}）が${to.name}への改修を終えて復帰しました。貨物路線で使えます。`, 'good');
+        planes.push({ ...p, typeId: to.id, convertTo: undefined, status: 'active', condition: Math.min(100, p.condition + 20), hoursSinceHeavy: 0 });
+      } else {
+        s = withNews(s, `${t.name}（${p.regNo}）が修理を終えて復帰しました。`);
+        planes.push({ ...p, status: 'active' });
+      }
       continue;
     }
     if (p.lease && p.status !== 'onOrder' && p.lease.endYM < now) {
@@ -359,6 +422,8 @@ export function advanceMonth(s0: GameState): GameState {
   let totalFlights = 0;
   let onTimeFlights = 0;
 
+  const cargo = cargoResults(s, fly, r);
+  const planeFlights: Record<string, number> = {};
   for (const route of s.routes) {
     const wk = routeWeekly(s, route, fly);
     const f = routeMarket(s, route, fly);
@@ -385,10 +450,17 @@ export function advanceMonth(s0: GameState): GameState {
       costs.airport += c.airport * flown;
       cost += fuel + maint + c.airport * flown;
       hours[plane.id] = (hours[plane.id] ?? 0) + (legMinutes(plane, route) / 60) * flown;
+      planeFlights[plane.id] = (planeFlights[plane.id] ?? 0) + flown;
     }
     const want = f.marketOneWay * f.share * (0.93 + r() * 0.14) * 2;
     const pax = Math.min(want, seats);
-    const rev = pax * route.fareYen;
+    const cg = cargo.get(route.id);
+    const cargoT = cg?.t ?? 0;
+    const cargoRev = cg?.rev ?? 0;
+    const cargoCost = cargoT * 1000 * cargoHandlingPerKg(isIntlRoute(route.from, route.to), s.year, s.month);
+    costs.cargo = (costs.cargo ?? 0) + cargoCost;
+    cost += cargoCost;
+    const rev = pax * route.fareYen + cargoRev;
     // international passengers need more service (meals, check-in, immigration handling)
     const ground = pax * groundCostPerPax(s.year, s.month) * (isIntlRoute(route.from, route.to) ? 1.5 : 1);
     const sales = rev * SALES_COMMISSION;
@@ -398,10 +470,11 @@ export function advanceMonth(s0: GameState): GameState {
     revenue += rev;
     totalFlights += flights + cancelled;
     onTimeFlights += onTime;
-    shareByPair[pairKey(route.from, route.to)] = f.share;
+    if (route.kind !== 'cargo') shareByPair[pairKey(route.from, route.to)] = f.share;
     routes.push({
       routeId: route.id, flights, seats, pax, demand: want, marketDemand: f.marketOneWay * 2, share: f.share,
       revenue: rev, cost, onTime: flights + cancelled > 0 ? onTime / (flights + cancelled) : 1, cancelled,
+      cargoT, cargoRevenue: cargoRev, cargoMarketT: cg?.marketT ?? 0,
     });
   }
 
@@ -432,12 +505,17 @@ export function advanceMonth(s0: GameState): GameState {
   const activePlanes = s.planes.filter((p) => p.status !== 'onOrder').length;
   costs.overhead = overheadMonthly(activePlanes, s.year, s.month) + revenue * ADMIN_SHARE;
 
+  // safety: incidents and accidents depend on maintenance, age, fleet mix and ops; never zero
+  const safetyOut = safetyEvents(s, planeFlights, r);
+  costs.safety = safetyOut.cost;
+  costs.insurance = safetyOut.insurance;
+
   const debtService = serviceLoans(s.loans);
   costs.interest = debtService.interest;
 
   const totalCost = Object.values(costs).reduce((a, b) => a + b, 0);
   const profit = revenue - totalCost;
-  const cash = s.cash + profit + prepaid - debtService.principal - deliveriesPaid;
+  const cash = s.cash + profit + prepaid - debtService.principal - deliveriesPaid + safetyOut.payout;
   const pax = routes.reduce((n, x) => n + x.pax, 0);
   const companyOnTime = totalFlights > 0 ? onTimeFlights / totalFlights : 1;
   const report: MonthReport = {
@@ -446,7 +524,8 @@ export function advanceMonth(s0: GameState): GameState {
   };
 
   // aircraft wear
-  const planes = s.planes.map((p) => {
+  const planes = s.planes.filter((p) => !safetyOut.lost.has(p.id)).map((p) => {
+    if (safetyOut.repair.has(p.id)) return { ...p, status: 'shop' as const, readyYM: nowYM(s) + safetyOut.repair.get(p.id)!, schedule: [], locked: false, cycleDays: undefined };
     if (p.status === 'onOrder') return p;
     const h = hours[p.id] ?? 0;
     const target = level.target - planeAge(p, s.year) * 0.5;
@@ -463,9 +542,12 @@ export function advanceMonth(s0: GameState): GameState {
   const spill = seats > 0 ? routes.reduce((n, x) => n + Math.max(0, x.demand - x.pax), 0) / Math.max(1, pax) : 0;
   const otpTerm = totalFlights > 0 ? (companyOnTime - 0.85) * 60 : 0;
   const repTarget = Math.max(15, Math.min(90, 30 + 30 * avgComfort - 10 * Math.min(1, spill) + otpTerm));
-  const reputation = s.reputation + (repTarget - s.reputation) * 0.05;
+  const reputation = Math.max(5, s.reputation + (repTarget - s.reputation) * 0.05 - safetyOut.repHit);
 
-  let next: GameState = { ...s, planes, cash, reputation, loans: debtService.loans, hiresThisMonth: {}, monthExpenses: {}, aiPressure: updatePressure(s, shareByPair) };
+  let next: GameState = { ...s, planes, cash, reputation, safety: safetyOut.record, loans: debtService.loans, hiresThisMonth: {}, monthExpenses: {}, aiPressure: updatePressure(s, shareByPair) };
+
+  for (const n of safetyOut.news) next = withNews(next, n.text, n.kind);
+  if (safetyOut.lost.size || safetyOut.repair.size) next = autoSchedule(next);
 
   const grounded = s.planes.filter((p) => p.status === 'active' && heavyCheckOverdue(p));
   for (const p of grounded) next = withNews(next, `${planeType(p).name}（${p.regNo}）は重整備の期限切れで飛行停止中です。`, 'bad');
@@ -494,7 +576,10 @@ export function advanceMonth(s0: GameState): GameState {
 
   if (month === 1) {
     for (const a of AIRPORTS) if (a.openYear === year) next = withNews(next, `${a.name}空港（${a.city}）が開港し、定期便を飛ばせるようになりました。`, 'history');
-    for (const t of AIRCRAFT_TYPES) if (t.introYear === year) next = withNews(next, `新型機「${t.name}」（${t.maker}）の受注が始まりました。`, 'history');
+    for (const t of AIRCRAFT_TYPES) {
+      if (t.convertedOnly && t.conversion?.since === year) next = withNews(next, `旅客機を貨物機に改修する「${t.name}」のプログラムが始まりました。`, 'history');
+      else if (!t.convertedOnly && t.introYear === year) next = withNews(next, `新型機「${t.name}」（${t.maker}）の受注が始まりました。`, 'history');
+    }
   }
   next = historyNews(next);
   for (const p of next.planes) {
@@ -604,4 +689,78 @@ export function addCodeshare(s: GameState, rivalId: string): Result {
 
 export function removeCodeshare(s: GameState, rivalId: string): Result {
   return ok({ ...s, codeshares: (s.codeshares ?? []).filter((c) => c !== rivalId) });
+}
+
+// ---- safety ---------------------------------------------------------------
+
+export const MAINT_RISK: Record<MaintLevel, number> = { low: 1.15, standard: 1, high: 0.9 };
+
+/** Company-wide risk compared with the industry average (flight-weighted; 1 = average) */
+export function companyRisk(s: GameState): number {
+  const types = new Set(s.planes.filter((p) => p.status !== 'onOrder').map((p) => p.typeId)).size;
+  const active = s.planes.filter((p) => p.status === 'active');
+  if (!active.length) return 1;
+  return active.reduce((n, p) => n + riskFactor(p.condition, planeAge(p, s.year), types, s.opsLevel, MAINT_RISK[s.maintLevel]), 0) / active.length;
+}
+
+interface SafetyOutcome {
+  lost: Set<string>;
+  repair: Map<string, number>;
+  cost: number;
+  insurance: number;
+  payout: number;
+  repHit: number;
+  record: NonNullable<GameState['safety']>;
+  news: { text: string; kind: 'bad' | 'good' | 'history' | undefined }[];
+}
+
+function safetyEvents(s: GameState, flights: Record<string, number>, r: () => number): SafetyOutcome {
+  const cpi = econ.jpCpi(yearFrac(s.year, s.month));
+  const base = accidentRatePerFlight(s.year);
+  const types = new Set(s.planes.filter((p) => p.status !== 'onOrder').map((p) => p.typeId)).size;
+  const out: SafetyOutcome = {
+    lost: new Set(), repair: new Map(), cost: 0, insurance: 0, payout: 0, repHit: 0,
+    record: { incidents: 0, serious: 0, accidents: 0, ...(s.safety ?? {}) }, news: [],
+  };
+  let minor = 0;
+  for (const p of s.planes) {
+    if (p.status === 'onOrder') continue;
+    const t = planeType(p);
+    const risk = riskFactor(p.condition, planeAge(p, s.year), types, s.opsLevel, MAINT_RISK[s.maintLevel]);
+    const value = planeValue(s, p);
+    // hull and liability insurance, priced on value and risk
+    out.insurance += (value * 0.001 + (t.seats * 1500 + 200000) * cpi) * Math.sqrt(risk);
+    const n = flights[p.id] ?? 0;
+    if (!n) continue;
+    const lam = base * risk * n;
+    const label = `${t.name}（${p.regNo}）`;
+    if (r() < 1 - Math.exp(-lam)) {
+      out.lost.add(p.id);
+      out.cost += (t.seats * 300000 + 30_000_000) * cpi;
+      if (!p.lease) out.payout += value * 0.9;
+      out.repHit += 20;
+      out.record.accidents++;
+      out.record.lastAccidentYM = nowYM(s);
+      out.record.scareUntilYM = nowYM(s) + 8;
+      out.news.push({ text: `【重大事故】${label}が機体を失う事故を起こしました。事故調査が始まり、しばらく利用者が離れます。${p.lease ? 'リース機は保険で清算されます。' : `保険金${formatYen(value * 0.9)}が支払われます。`}`, kind: 'bad' });
+      continue;
+    }
+    if (r() < 1 - Math.exp(-lam * SERIOUS_PER_ACCIDENT)) {
+      const months = 1 + Math.floor(r() * 2);
+      out.repair.set(p.id, months);
+      out.cost += value * 0.03 + 5_000_000 * cpi;
+      out.repHit += 3;
+      out.record.serious++;
+      out.news.push({ text: `【重大インシデント】${label}が運航中のトラブルで損傷し、${months}か月の修理に入ります。`, kind: 'bad' });
+      continue;
+    }
+    minor += Math.floor(lam * MINOR_PER_ACCIDENT + r());
+  }
+  if (minor > 0) {
+    out.cost += minor * 500_000 * cpi;
+    out.repHit += Math.min(2, minor * 0.15);
+    out.record.incidents += minor;
+    out.news.push({ text: `今月は軽微なトラブル（引き返し・部品不具合など）が${minor}件ありました。`, kind: undefined });
+  }
+  return out;
 }

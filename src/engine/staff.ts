@@ -1,12 +1,13 @@
 // Pilots and type ratings.
-import { AIRCRAFT_BY_ID } from '../data/aircraft';
+import { AIRCRAFT_BY_ID, ratingOf } from '../data/aircraft';
 import { HIRE_LIMIT_PER_MONTH, hireCost, pilotsNeeded, TRAINING_MONTHS, trainingCost } from './model';
 import { nowYM, planeType } from './fleet';
 import type { GameState, PilotPool } from './types';
 import { fail, formatYen, ok, spend, withNews, type Result } from './util';
 
 const empty: PilotPool = { rated: 0, training: [] };
-export const pool = (s: GameState, typeId: string): PilotPool => s.pilots[typeId] ?? empty;
+/** Pilots are rated per type family (a converted freighter shares its rating with the airliner) */
+export const pool = (s: GameState, typeId: string): PilotPool => s.pilots[ratingOf(typeId)] ?? empty;
 export const traineeCount = (p: PilotPool) => p.training.reduce((n, t) => n + t.count, 0);
 export const totalPilots = (s: GameState) =>
   Object.values(s.pilots).reduce((n, p) => n + p.rated + traineeCount(p), 0);
@@ -14,13 +15,13 @@ export const totalPilots = (s: GameState) =>
 /** Pilots needed for a type: planes in service or in heavy check need crews (wet leases bring their own) */
 export function pilotsRequired(s: GameState, typeId: string): number {
   return s.planes
-    .filter((p) => p.typeId === typeId && p.status !== 'onOrder' && p.lease?.kind !== 'wet')
+    .filter((p) => ratingOf(p.typeId) === ratingOf(typeId) && p.status !== 'onOrder' && p.lease?.kind !== 'wet')
     .reduce((n, p) => n + pilotsNeeded(planeType(p)), 0);
 }
 
 /** Types the company flies, has on order, or has pilots for */
 export function relevantTypes(s: GameState): string[] {
-  const ids = new Set<string>([...s.planes.map((p) => p.typeId), ...Object.keys(s.pilots)]);
+  const ids = new Set<string>([...s.planes.map((p) => ratingOf(p.typeId)), ...Object.keys(s.pilots)]);
   return [...ids].filter((id) => AIRCRAFT_BY_ID[id]);
 }
 
@@ -32,10 +33,11 @@ export function crewedPlanes(s: GameState): Set<string> {
     if (p.status !== 'active') continue;
     if (p.lease?.kind === 'wet') { crewed.add(p.id); continue; }
     const t = planeType(p);
-    left[t.id] ??= pool(s, t.id).rated;
+    const key = ratingOf(t.id);
+    left[key] ??= pool(s, t.id).rated;
     const need = pilotsNeeded(t);
-    if (left[t.id] >= need) {
-      left[t.id] -= need;
+    if (left[key] >= need) {
+      left[key] -= need;
       crewed.add(p.id);
     }
   }
@@ -43,7 +45,7 @@ export function crewedPlanes(s: GameState): Set<string> {
 }
 
 function setPool(s: GameState, typeId: string, p: PilotPool): GameState {
-  return { ...s, pilots: { ...s.pilots, [typeId]: p } };
+  return { ...s, pilots: { ...s.pilots, [ratingOf(typeId)]: p } };
 }
 
 /** Hire experienced pilots already rated on the type (limited supply each month) */

@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'vitest';
 import { advanceMonth, closeRoute, joinAlliance, newGame, openRoute, routeMarket, setOps, setRoute } from './sim';
 import { autoSchedule, scheduledWeekly, setPlaneSchedule, slotUsage, validateRotation, legViews } from './schedule';
-import { acquireUsed, disposePlane, orderNew, leadMonths, startHeavyCheck } from './fleet';
+import { acquireUsed, disposePlane, orderNew, leadMonths, startConversion, startHeavyCheck } from './fleet';
 import { creditLimit, takeLoan, repayLoan } from './finance';
 import { crewedPlanes, hirePilots, trainPilots } from './staff';
-import { canFly, HEAVY_CHECK_HOURS, intlReferenceFare, marketDemand, referenceFare, routeDistance } from './model';
-import { AIRCRAFT_BY_ID } from '../data/aircraft';
+import { accidentRatePerFlight, canFly, HEAVY_CHECK_HOURS, intlReferenceFare, riskFactor, marketDemand, referenceFare, routeDistance } from './model';
+import { AIRCRAFT_BY_ID, ratingOf } from '../data/aircraft';
 import type { GameState, UsedListing } from './types';
 import type { Result } from './util';
 
@@ -276,5 +276,69 @@ describe('international', () => {
   });
   test('international fares move with the exchange rate', () => {
     expect(intlReferenceFare(6000, 1984, 6) / intlReferenceFare(6000, 1988, 6)).toBeGreaterThan(1.1);
+  });
+});
+
+describe('cargo and safety', () => {
+  function co(year: number, typeId: string, n: number, base = 'HND') {
+    let s: GameState = { ...newGame('貨物テスト', base, 11), year, month: 6, reputation: 70, cash: 1e12 };
+    s = { ...s, pilots: { ...s.pilots, [ratingOf(typeId)]: { rated: 60, training: [] } }, slots: { ...s.slots, NRT: 99, HND: 99 } };
+    for (let i = 0; i < n; i++) {
+      let id: string;
+      [s, id] = withListing(s, typeId);
+      s = must(acquireUsed(s, id, 'buy'));
+    }
+    return { ...s, crewBases: [...new Set([...s.crewBases, base])], planes: s.planes.map((p) => ({ ...p, base, builtYear: year - 12 })) };
+  }
+
+  test('passenger flights carry belly cargo', () => {
+    let s = co(1990, 'b767-300', 2);
+    s = must(openRoute(s, 'HND', 'FUK', { skipLicense: true }));
+    s = advanceMonth(s);
+    const r = s.history[0].routes[0];
+    expect(r.cargoT).toBeGreaterThan(0);
+    expect(r.cargoRevenue).toBeGreaterThan(0);
+  });
+  test('freighters only fly cargo routes, airliners only passenger routes', () => {
+    let s = co(1995, 'b747-400f', 1, 'NRT');
+    s = must(openRoute(s, 'NRT', 'HKG', { skipLicense: true }));
+    expect(scheduledWeekly(s, s.routes[0].id)).toBe(0);
+    s = must(openRoute(s, 'NRT', 'HKG', { kind: 'cargo', skipLicense: true }));
+    expect(scheduledWeekly(s, s.routes[1].id)).toBeGreaterThan(0);
+    s = advanceMonth(s);
+    const cargoRoute = s.history[0].routes.find((x) => x.routeId === s.routes[1].id)!;
+    expect(cargoRoute.pax).toBe(0);
+    expect(cargoRoute.cargoT).toBeGreaterThan(100);
+  });
+  test('a 747-400 can be converted into a 747-400BCF and keeps its pilots', () => {
+    let s = co(2006, 'b747-400', 1, 'NRT');
+    const id = s.planes[0].id;
+    expect(startConversion(s, id, 'b747-400f').ok).toBe(false); // factory-built freighter is not a conversion
+    s = must(startConversion(s, id, 'b747-400bcf'));
+    expect(s.planes[0].status).toBe('shop');
+    for (let i = 0; i < 5; i++) s = advanceMonth(s);
+    expect(s.planes[0].typeId).toBe('b747-400bcf');
+    expect(crewedPlanes(s).has(id)).toBe(true);
+  });
+  test('conversions follow real programs: no 767 conversions in 1990', () => {
+    const s = co(1990, 'b767-300er', 1, 'NRT');
+    expect(startConversion(s, s.planes[0].id, 'b767-300bcf').ok).toBe(false);
+  });
+  test('maintenance quality drives risk, which never reaches zero', () => {
+    expect(riskFactor(96, 5, 1, 3, 0.9)).toBeLessThan(riskFactor(86, 5, 1, 0, 1));
+    expect(riskFactor(50, 30, 6, 0, 1.15)).toBeGreaterThan(5);
+    expect(riskFactor(100, 0, 1, 3, 0.9)).toBeGreaterThan(0);
+    expect(accidentRatePerFlight(2027)).toBeGreaterThan(0);
+  });
+  test('a badly maintained fleet has incidents and pays more for insurance', () => {
+    let good = co(1965, 'f27', 3);
+    good = must(openRoute(good, 'HND', 'SDJ', { skipLicense: true }));
+    good = must(setRoute(good, good.routes[0].id, { targetWeekly: 40 }));
+    const bad: GameState = { ...good, maintLevel: 'low', planes: good.planes.map((p) => ({ ...p, condition: 25 })) };
+    let a = good, b = bad;
+    for (let i = 0; i < 12; i++) { a = advanceMonth(a); b = advanceMonth(b); b = { ...b, planes: b.planes.map((p) => ({ ...p, condition: 25 })) }; }
+    const ev = (x: GameState) => (x.safety?.incidents ?? 0) + (x.safety?.serious ?? 0) * 10 + (x.safety?.accidents ?? 0) * 100;
+    expect(ev(b)).toBeGreaterThan(ev(a));
+    expect(b.history[0].costs.insurance!).toBeGreaterThan(a.history[0].costs.insurance!);
   });
 });

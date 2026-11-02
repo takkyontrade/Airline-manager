@@ -1,22 +1,22 @@
 import { useState } from 'react';
 import { AIRPORT_BY_CODE } from '../data/airports';
-import { AIRCRAFT_BY_ID } from '../data/aircraft';
+import { AIRCRAFT_BY_ID, conversionsFor } from '../data/aircraft';
 import {
   closeRoute, flyablePlanes, formatYen, planeAge, planeType, planesOnRoute,
   routeMarket, setMaintLevel, setRoute, type Result,
-  addCodeshare, allianceEligibility, ALLIANCE_FEE_MONTHLY, CODESHARE_FEE_MONTHLY, codeshareEligibility,
+  addCodeshare, allianceEligibility, companyRisk, ALLIANCE_FEE_MONTHLY, CODESHARE_FEE_MONTHLY, codeshareEligibility,
   joinAlliance, leaveAlliance, removeCodeshare,
 } from '../engine/sim';
-import { OPS_LEVELS, POLICY_LABEL, POLICY_LEVEL, scheduledWeekly, validateRotation } from '../engine/schedule';
+import { OPS_LEVELS, POLICY_LABEL, POLICY_LEVEL, scheduledWeekly, suits, validateRotation } from '../engine/schedule';
 import {
   acquireUsed, disposalTerms, disposePlane, financeLeaseMonthly, heavyCheckDue, heavyCheckOverdue,
   leadMonths, newTypesOnSale, nextCheckIsD, nowYM, OPERATING_TERMS, operatingLeaseRate,
-  ORDER_DEPOSIT, orderNew, startHeavyCheck, wetLeaseMonthly, ymLabel, type OrderMode,
+  ORDER_DEPOSIT, orderNew, startConversion, startHeavyCheck, wetLeaseMonthly, ymLabel, type OrderMode,
 } from '../engine/fleet';
 import { creditLimit, currentLoanRate, debt, fleetValue, LOAN_TERMS, monthlyPayment, repayLoan, takeLoan } from '../engine/finance';
 import { hirePilots, pilotsRequired, pool, relevantTypes, traineeCount, trainPilots } from '../engine/staff';
 import {
-  canFly, etopsMinutes, HEAVY_CHECK_HOURS, isIntlRoute, heavyCheckCost, HIRE_LIMIT_PER_MONTH, hireCost, MAINT_LEVELS,
+  canFly, cargoReferenceRate, CONVERSION_MONTHS, conversionCostYen, etopsMinutes, HEAVY_CHECK_HOURS, isIntlRoute, heavyCheckCost, HIRE_LIMIT_PER_MONTH, hireCost, MAINT_LEVELS,
   newPriceYen, pilotWage, routeDistance, TRAINING_MONTHS, trainingCost,
 } from '../engine/model';
 import type { GameState, MaintLevel, MonthReport, Plane, SchedulePolicy } from '../engine/types';
@@ -49,19 +49,29 @@ export function RoutesPanel({ s, apply, onHover }: { s: GameState; apply: Apply;
         const res = rep?.routes.find((x) => x.routeId === r.id);
         const sched = scheduledWeekly(s, r.id);
         const flyers = planesOnRoute(s, r.id);
+        const cargoRoute = r.kind === 'cargo';
+        const refRate = cargoReferenceRate(r.from, r.to, s.year, s.month);
         return (
           <div key={r.id} className="card" onMouseEnter={() => onHover(r.id)} onMouseLeave={() => onHover(null)}>
             <div className="card-head">
-              <strong>{aptName(r.from)} 〜 {aptName(r.to)}{isIntlRoute(r.from, r.to) && <span className="tag intl">国際線</span>}</strong>
+              <strong>{aptName(r.from)} 〜 {aptName(r.to)}{isIntlRoute(r.from, r.to) && <span className="tag intl">国際線</span>}{cargoRoute && <span className="tag cargo">貨物</span>}</strong>
               <span className="muted">{num(km)}km</span>
               <button className="danger small" onClick={() => confirm('この路線を廃止しますか？') && apply(closeRoute(s, r.id))}>廃止</button>
             </div>
             <div className="grid2">
-              <label>
-                運賃（片道）
-                <input type="number" step={100} value={r.fareYen} onChange={(e) => apply(setRoute(s, r.id, { fareYen: Number(e.target.value) }))} />
-                <span className="muted">相場 {num(f.refFare)}円{fareBand(s.year) && `（認可運賃：相場の${Math.round(fareBand(s.year)![0] * 100)}〜${Math.round(fareBand(s.year)![1] * 100)}%）`}</span>
-              </label>
+              {cargoRoute ? (
+                <label>
+                  貨物運賃（円/kg）
+                  <input type="number" step={1} value={r.cargoRateYen ?? refRate} onChange={(e) => apply(setRoute(s, r.id, { cargoRateYen: Number(e.target.value) }))} />
+                  <span className="muted">相場 {num(refRate)}円/kg</span>
+                </label>
+              ) : (
+                <label>
+                  運賃（片道）
+                  <input type="number" step={100} value={r.fareYen} onChange={(e) => apply(setRoute(s, r.id, { fareYen: Number(e.target.value) }))} />
+                  <span className="muted">相場 {num(f.refFare)}円{fareBand(s.year) && `（認可運賃：相場の${Math.round(fareBand(s.year)![0] * 100)}〜${Math.round(fareBand(s.year)![1] * 100)}%）`}</span>
+                </label>
+              )}
               <label>
                 目標：週の往復便数
                 <input type="number" min={0} value={r.targetWeekly} onChange={(e) => apply(setRoute(s, r.id, { targetWeekly: Number(e.target.value) }))} />
@@ -73,7 +83,7 @@ export function RoutesPanel({ s, apply, onHover }: { s: GameState; apply: Apply;
                 使う機種
                 <select value={r.typeId ?? ''} onChange={(e) => apply(setRoute(s, r.id, { typeId: e.target.value || null }))}>
                   <option value="">おまかせ</option>
-                  {ownedTypes.map((id) => <option key={id} value={id} disabled={!canFly(AIRCRAFT_BY_ID[id], r.from, r.to, s.year).ok}>{AIRCRAFT_BY_ID[id].name}</option>)}
+                  {ownedTypes.filter((id) => !!AIRCRAFT_BY_ID[id].freighter === cargoRoute).map((id) => <option key={id} value={id} disabled={!canFly(AIRCRAFT_BY_ID[id], r.from, r.to, s.year).ok}>{AIRCRAFT_BY_ID[id].name}</option>)}
                 </select>
               </label>
               <label>
@@ -87,7 +97,7 @@ export function RoutesPanel({ s, apply, onHover }: { s: GameState; apply: Apply;
                 </select>
               </label>
             </div>
-            <div className="muted small-text">
+            <div className="muted small-text" style={cargoRoute ? { display: 'none' } : undefined}>
               市場：月{num(f.marketOneWay * 2)}人{f.connecting >= 1 && `（うち乗り継ぎ ${num(f.connecting * 2)}人）`} ／ 予想シェア {pct(f.share)} ／ 他社：
               {f.rivals.length === 0 ? 'なし（独占）' : f.rivals.map((c) => (
                 <span key={c.rival.id} className="rival-chip" style={{ borderColor: c.rival.color }}>{f.partnerIds.includes(c.rival.id) ? '🤝' : ''}{c.rival.name} 週{c.weeklyFreq}往復・{num(f.refFare * c.fareMul)}円</span>
@@ -95,8 +105,9 @@ export function RoutesPanel({ s, apply, onHover }: { s: GameState; apply: Apply;
             </div>
             {res && (
               <div className="small-text">
-                先月：旅客 {num(res.pax)}人 ／ 搭乗率 {res.seats ? pct(res.pax / res.seats) : '-'} ／ 定時率 {pct(res.onTime)}
+                先月：{cargoRoute ? '' : <>旅客 {num(res.pax)}人 ／ 搭乗率 {res.seats ? pct(res.pax / res.seats) : '-'} ／ </>}定時率 {pct(res.onTime)}
                 {res.cancelled >= 0.5 && <span className="neg"> ／ 欠航 {Math.round(res.cancelled)}便</span>} ／ 収入 {formatYen(res.revenue)} ／ 運航費 {formatYen(res.cost)}
+                {(res.cargoT ?? 0) >= 0.5 && <span className="muted"> ／ 貨物{cargoRoute ? '' : '（床下）'} {num(res.cargoT!)}t・{formatYen(res.cargoRevenue ?? 0)}（市場 月{num(res.cargoMarketT ?? 0)}t）</span>}
               </div>
             )}
             {flyers.length > 0 && (
@@ -118,6 +129,7 @@ export function RoutesPanel({ s, apply, onHover }: { s: GameState; apply: Apply;
 function planeIssue(_s: GameState, p: Plane): string {
   if (p.status === 'onOrder') return `納入待ち（${ymLabel(p.readyYM)}）`;
   if (p.status === 'heavyCheck') return `重整備中（${ymLabel(p.readyYM)}まで）`;
+  if (p.status === 'shop') return p.convertTo ? `貨物機に改修中（${ymLabel(p.readyYM)}まで）` : `修理中（${ymLabel(p.readyYM)}まで）`;
   if (heavyCheckOverdue(p)) return '重整備の期限切れで飛行停止';
   if (validateRotation(_s, p).length) return 'ダイヤに問題あり';
   return 'パイロット不足';
@@ -128,6 +140,8 @@ function planeIssue(_s: GameState, p: Plane): string {
 function statusLabel(s: GameState, p: Plane, flying: boolean) {
   if (p.status === 'onOrder') return <span className="tag">納入 {ymLabel(p.readyYM)}</span>;
   if (p.status === 'heavyCheck') return <span className="tag warn">重整備 〜{ymLabel(p.readyYM)}</span>;
+  if (p.status === 'shop') return <span className="tag warn">{p.convertTo ? '貨物機に改修' : '修理'} 〜{ymLabel(p.readyYM)}</span>;
+  if (!flying && !s.routes.some((r) => suits(p, r))) return <span className="tag bad">{planeType(p).freighter ? '貨物路線がありません' : '旅客路線がありません'}</span>;
   if (!flying) return <span className="tag bad">{planeIssue(s, p)}</span>;
   return <span className="tag new">稼働中</span>;
 }
@@ -177,7 +191,13 @@ export function FleetPanel({ s, apply }: { s: GameState; apply: Apply }) {
                   if (confirm(`今月から${isD ? 'Dチェック（2か月）' : 'Cチェック（1か月）'}に入れますか？ 費用 ${formatYen(cost)}`)) apply(startHeavyCheck(s, p.id));
                 }}>重整備に入れる</button>
               )}
-              {p.status !== 'heavyCheck' && (
+              {p.status === 'active' && !p.lease && conversionsFor(p.typeId, s.year).map((to) => (
+                <button key={to.id} className="secondary small" title={planeAge(p, s.year) < 8 ? '機齢8年以上が対象です' : ''} disabled={planeAge(p, s.year) < 8} onClick={() => {
+                  const cost = conversionCostYen(to, s.year, s.month);
+                  if (confirm(`${to.name}に改修しますか？ 費用 ${formatYen(cost)}、${CONVERSION_MONTHS}か月運休します。改修後は貨物路線専用（${to.cargoT}t）になります。`)) apply(startConversion(s, p.id, to.id));
+                }}>貨物機に改修（{to.name.replace(/（.*）/, '')}）</button>
+              ))}
+              {p.status !== 'heavyCheck' && p.status !== 'shop' && (
                 <button className="danger small" onClick={() => {
                   const msg = p.status === 'onOrder'
                     ? '発注をキャンセルしますか？（手付金は戻りません）'
@@ -325,9 +345,11 @@ export function StaffPanel({ s, apply }: { s: GameState; apply: Apply }) {
         ))}
       </div>
       <p className="small-text muted">
-        手厚いほど機体の状態が良く保たれ、燃費・快適さ・評判が良くなります（第6段階で事故・インシデントの起きやすさにも影響）。
+        手厚いほど機体の状態が良く保たれ、燃費・快適さ・評判が良くなり、トラブルや事故も起きにくくなります。
         飛行{num(HEAVY_CHECK_HOURS)}時間ごとに重整備（3回に1回は長いDチェック）に自動で入ります。期限を15%過ぎると飛行停止です。
       </p>
+      <h3>安全</h3>
+      <SafetyBox s={s} />
       <h3>パイロット（月給 {formatYen(pilotWage(s.year, s.month))}／人）</h3>
       {types.length === 0 && <p className="hint">機体を導入すると、機種ごとのパイロットがここに表示されます。</p>}
       <div className="list">
@@ -374,7 +396,7 @@ export function StaffPanel({ s, apply }: { s: GameState; apply: Apply }) {
 
 const COST_LABELS: Record<keyof MonthReport['costs'], string> = {
   fuel: '燃料費', maintenance: '整備費', heavyChecks: '重整備', crew: '人件費（乗員）', training: '訓練費',
-  airport: '空港使用料', ground: '地上・旅客サービス', sales: '販売手数料', delays: '遅延・欠航対応', bases: '基地・運航計画', lease: 'リース料', interest: '支払利息', overhead: '本社経費',
+  airport: '空港使用料', ground: '地上・旅客サービス', sales: '販売手数料', delays: '遅延・欠航対応', bases: '基地・運航計画', lease: 'リース料', interest: '支払利息', overhead: '本社経費', cargo: '貨物取扱', insurance: '航空保険', safety: '事故・トラブル対応',
 };
 
 export function FinancePanel({ s, apply }: { s: GameState; apply: Apply }) {
@@ -540,6 +562,22 @@ export function RivalsPanel({ s, apply }: { s: GameState; apply: Apply }) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function SafetyBox({ s }: { s: GameState }) {
+  const risk = companyRisk(s);
+  const rec = s.safety ?? { incidents: 0, serious: 0, accidents: 0 };
+  const label = risk < 0.8 ? '業界平均より安全' : risk < 1.2 ? '業界平均なみ' : risk < 2 ? 'やや危険' : '危険';
+  const cls = risk < 1.2 ? '' : 'neg';
+  const scared = (s.safety?.scareUntilYM ?? -1) >= nowYM(s);
+  return (
+    <div className="small-text">
+      <div>事故リスク：<span className={cls}>業界平均の{risk.toFixed(2)}倍（{label}）</span></div>
+      <div className="muted">これまでの記録：軽微なトラブル {num(rec.incidents)}件 ／ 重大インシデント {rec.serious}件 ／ 重大事故 {rec.accidents}件</div>
+      {scared && <div className="neg">事故の影響で、{ymLabel(s.safety!.scareUntilYM!)}ごろまで利用者が離れています。</div>}
+      <p className="muted">リスクは機体の状態（整備）、機齢、機種の多さ、運航計画部門の規模で決まり、ゼロにはなりません。航空保険料もリスクに応じて上下します。</p>
     </div>
   );
 }

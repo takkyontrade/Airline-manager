@@ -1,4 +1,5 @@
 import { test } from 'vitest';
+import { ratingOf } from '../src/data/aircraft';
 import { newGame, openRoute, setRoute, advanceMonth, formatYen, routeMarket } from '../src/engine/sim';
 import { acquireUsed, orderNew } from '../src/engine/fleet';
 import { scheduledWeekly } from '../src/engine/schedule';
@@ -66,5 +67,29 @@ test('starter: 1960 local network with used planes, licensing on', () => {
     s = advanceMonth(s);
     if (i === 23) { const h = s.history[s.history.length - 1]; console.log(Object.entries(h.costs).map(([k, v]) => `${k} ${formatYen(v)}`).join(' / ')); for (const r of h.routes) console.log(r.routeId, 'pax', Math.round(r.pax), 'seats', Math.round(r.seats), 'share', r.share.toFixed(2), 'mkt', Math.round(r.marketDemand), 'rev', formatYen(r.revenue)); }
     if (i % 3 === 2) console.log(`${s.year}/${s.month} cash ${formatYen(s.cash)} profit ${formatYen(s.history[s.history.length - 1].profit)} rep ${s.reputation.toFixed(1)} routes ${s.routes.map((r) => `${r.to}:${scheduledWeekly(s, r.id)}`).join(' ')}`);
+  }
+});
+
+test('cargo', () => {
+  for (const [label, from, to, typeId, year, weekly] of [
+    ['1980 NRT-HKG 747-200F', 'NRT', 'HKG', 'b747-200f', 1980, 3],
+    ['1995 NRT-HKG 747-400F', 'NRT', 'HKG', 'b747-400f', 1995, 10],
+    ['2012 NRT-PVG 767-300F', 'NRT', 'PVG', 'b767-300f', 2012, 14],
+    ['2019 NRT-ICN 777F', 'NRT', 'ICN', 'b777f', 2019, 14],
+    ['1998 HND-CTS 767-300F dom', 'HND', 'CTS', 'b767-300f', 1998, 7],
+  ] as const) {
+    let s: GameState = { ...newGame('C', from, 1), year };
+    s = { ...s, cash: 1e13, slots: { HND: 999, ITM: 999, NRT: 999 }, crewBases: [from], pilots: { [ratingOf(typeId)]: { rated: 30, training: [] } } };
+    s = must(orderNew(s, typeId, 'operating', 8));
+    s = { ...s, planes: s.planes.map((p) => ({ ...p, status: 'active' as const, readyYM: 0, builtYear: year, lease: p.lease && { ...p.lease, startYM: 0 } })) };
+    s = must(openRoute(s, from, to, { skipLicense: true, kind: 'cargo' }));
+    s = must(setRoute(s, s.routes[0].id, { targetWeekly: weekly }));
+    const wk = scheduledWeekly(s, s.routes[0].id);
+    for (let i = 0; i < 12; i++) s = advanceMonth(s);
+    const h = s.history;
+    const rev = h.reduce((a, x) => a + x.revenue, 0), prof = h.reduce((a, x) => a + x.profit, 0);
+    const t = h.reduce((a, x) => a + (x.routes[0].cargoT ?? 0), 0), mkt = h.reduce((a, x) => a + (x.routes[0].cargoMarketT ?? 0), 0);
+    if (process.env.DETAIL) { const c: Record<string, number> = {}; for (const x of h) for (const [k, v] of Object.entries(x.costs)) c[k] = (c[k] ?? 0) + v; console.log(Object.entries(c).map(([k, v]) => `${k} ${formatYen(v)}`).join(' / ')); }
+    console.log(`${label}: ${wk}/wk carried ${Math.round(t)}t of market ${Math.round(mkt)}t rev ${formatYen(rev)} profit ${formatYen(prof)} margin ${(prof / rev * 100).toFixed(0)}%`);
   }
 });
