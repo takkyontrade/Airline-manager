@@ -6,7 +6,8 @@ import { clearAutosave, downloadSave, loadAutosave, loadSlot, parseSave, saveToS
 import { routeDistance } from '../engine/model';
 import type { GameState } from '../engine/types';
 import { MapView } from './MapView';
-import { FinancePanel, FleetPanel, MarketPanel, NewsPanel, RivalsPanel, RoutesPanel, StaffPanel } from './panels';
+import { FinancePanel, FleetPanel, MarketPanel, NewsPanel, RivalsPanel, StaffPanel } from './panels';
+import { RoutesScreen } from './RoutesScreen';
 import { SchedulePanel } from './SchedulePanel';
 import { BrandPanel } from './BrandPanel';
 import { OpsRoom } from './OpsRoom';
@@ -83,7 +84,7 @@ function NewGame({ onStart }: { onStart: (s: GameState) => void }) {
 }
 
 function Game({ state, setState }: { state: GameState; setState: (s: GameState | null) => void }) {
-  const [tab, setTab] = useState<Tab>('routes');
+  const [tab, setTab] = useState<Tab>('schedule');
   const [sel, setSel] = useState<string | null>(null);
   const [routeKind, setRouteKind] = useState<'pax' | 'cargo'>('pax');
   const [view, setView] = useState<'map' | 'ops'>('map');
@@ -128,8 +129,8 @@ function Game({ state, setState }: { state: GameState; setState: (s: GameState |
         <div className="muted">評判 {Math.round(state.reputation)}</div>
         <div className="spacer" />
         <div className="seg small-seg">
-          <button className={view === 'map' ? 'on' : ''} onClick={() => setView('map')}>地図</button>
-          <button className={view === 'ops' ? 'on' : ''} onClick={() => setView('ops')}>オペレーションルーム</button>
+          <button className={view === 'map' && tab !== 'routes' ? 'on' : ''} onClick={() => { setView('map'); if (tab === 'routes') setTab('schedule'); }}>地図</button>
+          <button className={view === 'ops' && tab !== 'routes' ? 'on' : ''} onClick={() => { setView('ops'); if (tab === 'routes') setTab('schedule'); }}>オペレーションルーム</button>
         </div>
         <button className="secondary small menu-toggle" onClick={() => setMenuOpen(!menuOpen)}>≡ メニュー</button>
         <div className={`file-buttons ${menuOpen ? 'open' : ''}`}>
@@ -170,6 +171,16 @@ function Game({ state, setState }: { state: GameState; setState: (s: GameState |
         <button className="primary" disabled={state.gameOver} onClick={() => setState(advanceMonth(state))}>1か月進める ▶</button>
       </header>
       {state.gameOver && <div className="banner bad">倒産しました。「新しいゲーム」から再挑戦できます。</div>}
+      {tab === 'routes' ? (
+        <main className="full">
+          <nav className="tabs">
+            {TABS.map(([k, label]) => (
+              <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{label}</button>
+            ))}
+          </nav>
+          <RoutesScreen s={state} apply={apply} onHover={setHoverRoute} />
+        </main>
+      ) : (
       <main>
         <section className="map-wrap">
           {view === 'ops' ? <OpsRoom s={state} /> : <>
@@ -191,7 +202,6 @@ function Game({ state, setState }: { state: GameState; setState: (s: GameState |
             ))}
           </nav>
           <div className="panel">
-            {tab === 'routes' && <RoutesPanel s={state} apply={apply} onHover={setHoverRoute} />}
             {tab === 'schedule' && <SchedulePanel s={state} apply={apply} />}
             {tab === 'fleet' && <FleetPanel s={state} apply={apply} />}
             {tab === 'market' && <MarketPanel s={state} apply={apply} />}
@@ -203,6 +213,7 @@ function Game({ state, setState }: { state: GameState; setState: (s: GameState |
           </div>
         </aside>
       </main>
+      )}
       {cloudOpen && <CloudPanel state={state} onLoad={setState} onClose={() => setCloudOpen(false)} flash={flash} />}
       {toast && <div className="toast">{toast}</div>}
     </div>

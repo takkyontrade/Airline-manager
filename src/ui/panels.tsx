@@ -24,11 +24,10 @@ import {
   canFly, cargoReferenceRate, TECH_STOPS, CONVERSION_MONTHS, conversionCostYen, etopsMinutes, HEAVY_CHECK_HOURS, isIntlRoute, heavyCheckCost, HIRE_LIMIT_PER_MONTH, hireCost, MAINT_LEVELS,
   newPriceYen, pilotWage, routeDistance, TRAINING_MONTHS, trainingCost,
 } from '../engine/model';
-import type { CabinLayout, GameState, MaintLevel, MonthReport, Plane, SchedulePolicy } from '../engine/types';
+import type { CabinLayout, GameState, MaintLevel, MonthReport, Plane, Route, SchedulePolicy } from '../engine/types';
 import { CABIN_LABEL, cabinAcceptance, premiumFareMul } from '../engine/brand';
 import { planeLivery } from './BrandPanel';
 import { PlaneSilhouette } from './PlaneSilhouette';
-import { CircuitsBox } from './CircuitsBox';
 import { fareBand, routeLicensing } from '../data/history';
 import { allianceMembers, partners, rivalAlliance, rivalOverview } from '../engine/rivals';
 import { ALLIANCES } from '../data/alliances';
@@ -43,115 +42,107 @@ const lastReport = (s: GameState): MonthReport | undefined => s.history[s.histor
 
 // ---- routes --------------------------------------------------------------
 
-export function RoutesPanel({ s, apply, onHover }: { s: GameState; apply: Apply; onHover: (id: string | null) => void }) {
+/** Everything about one route, editable */
+export function RouteDetail({ s, r, apply }: { s: GameState; r: Route; apply: Apply }) {
   const rep = lastReport(s);
   const fly = flyablePlanes(s);
-  if (s.routes.length === 0)
-    return <div className="list"><p className="hint">まだ路線がありません。地図で空港を2つ順にクリックすると路線を開設できます。</p><CircuitsBox s={s} apply={apply} /></div>;
   const ownedTypes = [...new Set(s.planes.map((p) => p.typeId))];
-  return (
-    <div className="list">
-      <CircuitsBox s={s} apply={apply} />
-      {s.routes.map((r) => {
-        const km = routeDistance(r.from, r.to);
-        const f = routeMarket(s, r, fly);
-        const res = rep?.routes.find((x) => x.routeId === r.id);
-        const sched = scheduledWeekly(s, r.id);
-        const flyers = planesOnRoute(s, r.id);
-        const cargoRoute = r.kind === 'cargo';
-        const refRate = cargoReferenceRate(r.from, r.to, s.year, s.month);
-        return (
-          <div key={r.id} className="card" onMouseEnter={() => onHover(r.id)} onMouseLeave={() => onHover(null)}>
-            <div className="card-head">
-              <strong>{aptName(r.from)} 〜 {aptName(r.to)}{isIntlRoute(r.from, r.to) && <span className="tag intl">国際線</span>}{cargoRoute && <span className="tag cargo">貨物</span>}</strong>
-              <span className="muted">{num(km)}km</span>
-              <button className="danger small" onClick={() => confirm('この路線を廃止しますか？') && apply(closeRoute(s, r.id))}>廃止</button>
-            </div>
-            <div className="grid2">
-              {cargoRoute ? (
-                <label>
-                  貨物運賃（円/kg）
-                  <NumInput min={0} value={r.cargoRateYen ?? refRate} onCommit={(v) => apply(setRoute(s, r.id, { cargoRateYen: v }))} />
-                  <span className="muted">相場 {num(refRate)}円/kg</span>
-                </label>
-              ) : (
-                <label>
-                  運賃（片道）
-                  <NumInput min={0} value={r.fareYen} onCommit={(v) => apply(setRoute(s, r.id, { fareYen: v }))} />
-                  <span className="muted">相場 {num(f.refFare)}円{fareBand(s.year) && `（認可運賃：相場の${Math.round(fareBand(s.year)![0] * 100)}〜${Math.round(fareBand(s.year)![1] * 100)}%）`}</span>
-                </label>
-              )}
-              <label>
-                目標：週の往復便数
-                <NumInput min={0} value={r.targetWeekly} onCommit={(v) => apply(setRoute(s, r.id, { targetWeekly: v }))} />
-                <span className={sched < r.targetWeekly ? 'neg' : 'muted'}>
-                  ダイヤに入ったのは週{sched}往復{sched < r.targetWeekly && '（機材・時間・発着枠が足りません）'}
-                </span>
-              </label>
-              <label>
-                使う機種
-                <select value={r.typeId ?? ''} onChange={(e) => apply(setRoute(s, r.id, { typeId: e.target.value || null }))}>
-                  <option value="">おまかせ</option>
-                  {ownedTypes.filter((id) => !!AIRCRAFT_BY_ID[id].freighter === cargoRoute).map((id) => <option key={id} value={id} disabled={!canFly(AIRCRAFT_BY_ID[id], r.from, r.to, s.year, r.via).ok}>{AIRCRAFT_BY_ID[id].name}</option>)}
-                </select>
-              </label>
-              <label>
-                ダイヤの方針
-                <select value={r.policy} onChange={(e) => apply(setRoute(s, r.id, { policy: e.target.value as SchedulePolicy }))}>
-                  {(Object.keys(POLICY_LABEL) as SchedulePolicy[]).map((k) => (
-                    <option key={k} value={k} disabled={POLICY_LEVEL[k] > s.opsLevel}>
-                      {POLICY_LABEL[k]}{POLICY_LEVEL[k] > s.opsLevel ? `（運航計画部門「${OPS_LEVELS[POLICY_LEVEL[k]].label}」以上）` : ''}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {isIntlRoute(r.from, r.to) && (
-                <label>
-                  経由地（給油）
-                  <select value={r.via ?? ''} onChange={(e) => apply(setRoute(s, r.id, { via: e.target.value || null }))}>
-                    <option value="">直行</option>
-                    {TECH_STOPS.filter((c) => c !== r.from && c !== r.to).map((c) => <option key={c} value={c}>{aptName(c)}経由</option>)}
-                  </select>
-                  <span className="muted">航続距離が足りない機体でも飛べますが、時間がかかり直行便より選ばれにくくなります</span>
-                </label>
-              )}
-              {!cargoRoute && (
-                <label>
-                  座席クラス
-                  <select value={r.cabin ?? 'mono'} onChange={(e) => apply(setRoute(s, r.id, { cabin: e.target.value as CabinLayout }))}>
-                    {(Object.keys(CABIN_LABEL) as CabinLayout[]).map((k) => <option key={k} value={k}>{CABIN_LABEL[k]}</option>)}
-                  </select>
-                  {(r.cabin ?? 'mono') !== 'mono' && <span className="muted">浸透度 {pct(cabinAcceptance(s, r.cabin))}（上級席は運賃の{premiumFareMul(r).toFixed(1)}倍）</span>}
-                </label>
-              )}
-            </div>
-            <div className="muted small-text" style={cargoRoute ? { display: 'none' } : undefined}>
-              市場：月{num(f.marketOneWay * 2)}人{f.connecting >= 1 && `（うち乗り継ぎ ${num(f.connecting * 2)}人）`} ／ 予想シェア {pct(f.share)} ／ 他社：
-              {f.rivals.length === 0 ? 'なし（独占）' : f.rivals.map((c) => (
-                <span key={c.rival.id} className="rival-chip" style={{ borderColor: c.rival.color }}>{f.partnerIds.includes(c.rival.id) ? '🤝' : ''}{c.rival.name} 週{c.weeklyFreq}往復・{num(f.refFare * c.fareMul)}円</span>
+    const km = routeDistance(r.from, r.to);
+    const f = routeMarket(s, r, fly);
+    const res = rep?.routes.find((x) => x.routeId === r.id);
+    const sched = scheduledWeekly(s, r.id);
+    const flyers = planesOnRoute(s, r.id);
+    const cargoRoute = r.kind === 'cargo';
+    const refRate = cargoReferenceRate(r.from, r.to, s.year, s.month);
+    return (
+      <div className="card route-detail">
+        <div className="card-head">
+          <strong>{aptName(r.from)} 〜 {aptName(r.to)}{isIntlRoute(r.from, r.to) && <span className="tag intl">国際線</span>}{cargoRoute && <span className="tag cargo">貨物</span>}</strong>
+          <span className="muted">{num(km)}km</span>
+          <button className="danger small" onClick={() => confirm('この路線を廃止しますか？') && apply(closeRoute(s, r.id))}>廃止</button>
+        </div>
+        <div className="grid2">
+          {cargoRoute ? (
+            <label>
+              貨物運賃（円/kg）
+              <NumInput min={0} value={r.cargoRateYen ?? refRate} onCommit={(v) => apply(setRoute(s, r.id, { cargoRateYen: v }))} />
+              <span className="muted">相場 {num(refRate)}円/kg</span>
+            </label>
+          ) : (
+            <label>
+              運賃（片道）
+              <NumInput min={0} value={r.fareYen} onCommit={(v) => apply(setRoute(s, r.id, { fareYen: v }))} />
+              <span className="muted">相場 {num(f.refFare)}円{fareBand(s.year) && `（認可運賃：相場の${Math.round(fareBand(s.year)![0] * 100)}〜${Math.round(fareBand(s.year)![1] * 100)}%）`}</span>
+            </label>
+          )}
+          <label>
+            目標：週の往復便数
+            <NumInput min={0} value={r.targetWeekly} onCommit={(v) => apply(setRoute(s, r.id, { targetWeekly: v }))} />
+            <span className={sched < r.targetWeekly ? 'neg' : 'muted'}>
+              ダイヤに入ったのは週{sched}往復{sched < r.targetWeekly && '（機材・時間・発着枠が足りません）'}
+            </span>
+          </label>
+          <label>
+            使う機種
+            <select value={r.typeId ?? ''} onChange={(e) => apply(setRoute(s, r.id, { typeId: e.target.value || null }))}>
+              <option value="">おまかせ</option>
+              {ownedTypes.filter((id) => !!AIRCRAFT_BY_ID[id].freighter === cargoRoute).map((id) => <option key={id} value={id} disabled={!canFly(AIRCRAFT_BY_ID[id], r.from, r.to, s.year, r.via).ok}>{AIRCRAFT_BY_ID[id].name}</option>)}
+            </select>
+          </label>
+          <label>
+            ダイヤの方針
+            <select value={r.policy} onChange={(e) => apply(setRoute(s, r.id, { policy: e.target.value as SchedulePolicy }))}>
+              {(Object.keys(POLICY_LABEL) as SchedulePolicy[]).map((k) => (
+                <option key={k} value={k} disabled={POLICY_LEVEL[k] > s.opsLevel}>
+                  {POLICY_LABEL[k]}{POLICY_LEVEL[k] > s.opsLevel ? `（運航計画部門「${OPS_LEVELS[POLICY_LEVEL[k]].label}」以上）` : ''}
+                </option>
               ))}
-            </div>
-            {res && (
-              <div className="small-text">
-                先月：{cargoRoute ? '' : <>旅客 {num(res.pax)}人{(res.premiumPax ?? 0) >= 1 && `（上級席 ${num(res.premiumPax!)}人）`} ／ 搭乗率 {res.seats ? pct(res.pax / res.seats) : '-'} ／ </>}定時率 {pct(res.onTime)}
-                {res.cancelled >= 0.5 && <span className="neg"> ／ 欠航 {Math.round(res.cancelled)}便</span>} ／ 収入 {formatYen(res.revenue)} ／ 運航費 {formatYen(res.cost)}
-                {(res.cargoT ?? 0) >= 0.5 && <span className="muted"> ／ 貨物{cargoRoute ? '' : '（床下）'} {num(res.cargoT!)}t・{formatYen(res.cargoRevenue ?? 0)}（市場 月{num(res.cargoMarketT ?? 0)}t）</span>}
-              </div>
-            )}
-            {flyers.length > 0 && (
-              <div className="assigned">
-                {flyers.map((p) => (
-                  <span key={p.id} className={`chip ${fly.has(p.id) ? '' : 'warn'}`} title={fly.has(p.id) ? '' : planeIssue(s, p)}>
-                    {planeType(p).name} {p.regNo}{p.locked && ' 🔒'}{!fly.has(p.id) && ' ⚠'}
-                  </span>
-                ))}
-              </div>
-            )}
+            </select>
+          </label>
+          {isIntlRoute(r.from, r.to) && (
+            <label>
+              経由地（給油）
+              <select value={r.via ?? ''} onChange={(e) => apply(setRoute(s, r.id, { via: e.target.value || null }))}>
+                <option value="">直行</option>
+                {TECH_STOPS.filter((c) => c !== r.from && c !== r.to).map((c) => <option key={c} value={c}>{aptName(c)}経由</option>)}
+              </select>
+              <span className="muted">航続距離が足りない機体でも飛べますが、時間がかかり直行便より選ばれにくくなります</span>
+            </label>
+          )}
+          {!cargoRoute && (
+            <label>
+              座席クラス
+              <select value={r.cabin ?? 'mono'} onChange={(e) => apply(setRoute(s, r.id, { cabin: e.target.value as CabinLayout }))}>
+                {(Object.keys(CABIN_LABEL) as CabinLayout[]).map((k) => <option key={k} value={k}>{CABIN_LABEL[k]}</option>)}
+              </select>
+              {(r.cabin ?? 'mono') !== 'mono' && <span className="muted">浸透度 {pct(cabinAcceptance(s, r.cabin))}（上級席は運賃の{premiumFareMul(r).toFixed(1)}倍）</span>}
+            </label>
+          )}
+        </div>
+        <div className="muted small-text" style={cargoRoute ? { display: 'none' } : undefined}>
+          市場：月{num(f.marketOneWay * 2)}人{f.connecting >= 1 && `（うち乗り継ぎ ${num(f.connecting * 2)}人）`} ／ 予想シェア {pct(f.share)} ／ 他社：
+          {f.rivals.length === 0 ? 'なし（独占）' : f.rivals.map((c) => (
+            <span key={c.rival.id} className="rival-chip" style={{ borderColor: c.rival.color }}>{f.partnerIds.includes(c.rival.id) ? '🤝' : ''}{c.rival.name} 週{c.weeklyFreq}往復・{num(f.refFare * c.fareMul)}円</span>
+          ))}
+        </div>
+        {res && (
+          <div className="small-text">
+            先月：{cargoRoute ? '' : <>旅客 {num(res.pax)}人{(res.premiumPax ?? 0) >= 1 && `（上級席 ${num(res.premiumPax!)}人）`} ／ 搭乗率 {res.seats ? pct(res.pax / res.seats) : '-'} ／ </>}定時率 {pct(res.onTime)}
+            {res.cancelled >= 0.5 && <span className="neg"> ／ 欠航 {Math.round(res.cancelled)}便</span>} ／ 収入 {formatYen(res.revenue)} ／ 運航費 {formatYen(res.cost)}
+            {(res.cargoT ?? 0) >= 0.5 && <span className="muted"> ／ 貨物{cargoRoute ? '' : '（床下）'} {num(res.cargoT!)}t・{formatYen(res.cargoRevenue ?? 0)}（市場 月{num(res.cargoMarketT ?? 0)}t）</span>}
           </div>
-        );
-      })}
-    </div>
-  );
+        )}
+        {flyers.length > 0 && (
+          <div className="assigned">
+            {flyers.map((p) => (
+              <span key={p.id} className={`chip ${fly.has(p.id) ? '' : 'warn'}`} title={fly.has(p.id) ? '' : planeIssue(s, p)}>
+                {planeType(p).name} {p.regNo}{p.locked && ' 🔒'}{!fly.has(p.id) && ' ⚠'}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    );
 }
 
 function planeIssue(_s: GameState, p: Plane): string {

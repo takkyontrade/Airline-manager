@@ -222,6 +222,8 @@ export interface GameState {
   difficulty?: 'easy' | 'normal' | 'hard';
   /** multi-stop rotations (e.g. triangle routes) scheduled automatically */
   circuits?: Circuit[];
+  /** two-letter code used in flight numbers */
+  flightCode?: string;
   /** year the company was founded (for retro liveries) */
   foundedYear?: number;
   /** company livery */
