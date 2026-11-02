@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../data/airports';
-import { advanceMonth, formatYen, newGame, openAirports, openRoute, START_YEAR, type Result } from '../engine/sim';
+import { advanceMonth, DIFFICULTY, formatYen, newGame, openAirports, openRoute, START_OPTIONS, START_YEAR, type Difficulty, type Result } from '../engine/sim';
+import { AIRCRAFT_BY_ID } from '../data/aircraft';
 import { clearAutosave, downloadSave, loadAutosave, loadSlot, parseSave, saveToSlot, SLOT_COUNT, slotInfo, writeAutosave } from '../engine/save';
 import { routeDistance } from '../engine/model';
 import type { GameState } from '../engine/types';
@@ -26,13 +27,29 @@ export function App() {
 
 function NewGame({ onStart }: { onStart: (s: GameState) => void }) {
   const [name, setName] = useState('');
-  const airports = openAirports(START_YEAR).sort((a, b) => b.popM - a.popM);
+  const [year, setYear] = useState(START_YEAR);
+  const [difficulty, setDifficulty] = useState<Difficulty>('normal');
+  const airports = openAirports(year).filter((a) => !a.foreign).sort((a, b) => b.popM - a.popM);
   const [base, setBase] = useState(airports[0].code);
+  const start = START_OPTIONS.find((o) => o.year === year)!;
   const fileRef = useRef<HTMLInputElement>(null);
   return (
     <div className="newgame">
       <h1>航空会社運営ゲーム（仮）</h1>
-      <p className="muted">1960年1月、日本。小さな航空会社を立ち上げ、空の歴史とともに育てていきましょう。</p>
+      <p className="muted">日本で小さな航空会社を立ち上げ、空の歴史とともに育てていきましょう。</p>
+      <label>
+        始める年
+        <select value={year} onChange={(e) => { const y = Number(e.target.value); setYear(y); if (!openAirports(y).some((a) => a.code === base)) setBase('HND'); }}>
+          {START_OPTIONS.map((o) => <option key={o.year} value={o.year}>{o.label}</option>)}
+        </select>
+        <span className="muted small-text">{start.note}</span>
+      </label>
+      <label>
+        難易度
+        <select value={difficulty} onChange={(e) => setDifficulty(e.target.value as Difficulty)}>
+          {(Object.keys(DIFFICULTY) as Difficulty[]).map((k) => <option key={k} value={k}>{DIFFICULTY[k].label}{DIFFICULTY[k].note && `（${DIFFICULTY[k].note}）`}</option>)}
+        </select>
+      </label>
       <label>
         会社名
         <input value={name} placeholder="新日本航空" onChange={(e) => setName(e.target.value)} />
@@ -45,9 +62,9 @@ function NewGame({ onStart }: { onStart: (s: GameState) => void }) {
           ))}
         </select>
       </label>
-      <p className="muted small-text">資本金は5億円です。DC-3の資格を持つパイロットが10人います。最初は中古のDC-3や、乗員付きのウェットリースから始めるのがおすすめです。</p>
+      <p className="muted small-text">最初は中古機や、乗員付きのウェットリースから始めるのがおすすめです。創業時のパイロットは{AIRCRAFT_BY_ID[start.pilotType].name}の資格を持っています。</p>
       <div className="row">
-        <button onClick={() => onStart(newGame(name || '新日本航空', base))}>会社を設立する</button>
+        <button onClick={() => onStart(newGame(name || '新日本航空', base, Date.now(), { startYear: year, difficulty }))}>会社を設立する</button>
         <button className="secondary" onClick={() => fileRef.current?.click()}>セーブファイルを読み込む</button>
         <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={async (e) => {
           const f = e.target.files?.[0];

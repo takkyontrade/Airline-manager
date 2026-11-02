@@ -98,9 +98,7 @@ export function SchedulePanel({ s, apply }: { s: GameState; apply: Apply }) {
               ))}
             </div>
             {errs.length > 0 && <div className="small-text neg">{errs[0]}</div>}
-            {editing === p.id && (multi
-              ? <p className="small-text muted card">長距離便の機体は自動でダイヤを組みます（手での編集は今後対応予定）。時刻はすべて日本時間です。</p>
-              : <LegEditor s={s} p={p} apply={apply} />)}
+            {editing === p.id && (multi ? <LongHaulEditor s={s} p={p} apply={apply} /> : <LegEditor s={s} p={p} apply={apply} />)}
           </div>
         );
       })}
@@ -176,6 +174,49 @@ function LegEditor({ s, p, apply }: { s: GameState; p: Plane; apply: Apply }) {
         <span className="small-text muted">{aptName(lastTo)}の運用時間 {hhmm(open)}〜{hhmm(close)}</span>
       </div>
       <p className="small-text muted">手で編集した機体は自動的に「固定」になります。最後の便は拠点に戻るように組んでください。</p>
+    </div>
+  );
+}
+
+/** Editor for multi-day long-haul rotations: each leg has a day offset and a time (Japan time) */
+function LongHaulEditor({ s, p, apply }: { s: GameState; p: Plane; apply: Apply }) {
+  const views = legViews(s, p);
+  const cycle = p.cycleDays ?? 1;
+  const errs = validateRotation(s, p);
+  const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + (m || 0); };
+  const update = (legs: Leg[], days = cycle) => apply(setPlaneSchedule(s, p.id, legs, undefined, days));
+  return (
+    <div className="card editor">
+      <div className="row">
+        <label className="inline">サイクル
+          <select value={cycle} onChange={(e) => update(views.map((v) => v.leg), Number(e.target.value))}>
+            {[1, 2, 3, 4].map((d) => <option key={d} value={d}>{d}日で1往復（週{(7 / d).toFixed(1)}往復）</option>)}
+          </select>
+        </label>
+        <label className="inline">
+          <input type="checkbox" checked={p.locked} onChange={(e) => apply(setPlaneLock(s, p.id, e.target.checked))} />
+          固定（自動で組み直しても変えない）
+        </label>
+      </div>
+      <table className="tbl">
+        <thead><tr><th>出発（日本時間）</th><th>区間</th><th>到着</th></tr></thead>
+        <tbody>
+          {views.map((v, i) => (
+            <tr key={i}>
+              <td>
+                <select value={Math.floor(v.dep / 1440)} onChange={(e) => update(views.map((x, j) => (j === i ? { ...x.leg, dep: Number(e.target.value) * 1440 + (x.dep % 1440) } : x.leg)))}>
+                  {Array.from({ length: cycle + 1 }, (_, d) => <option key={d} value={d}>{d === 0 ? '1日目' : `${d + 1}日目`}</option>)}
+                </select>
+                <input type="time" step={300} value={hhmm(v.dep)} onChange={(e) => update(views.map((x, j) => (j === i ? { ...x.leg, dep: Math.floor(x.dep / 1440) * 1440 + toMin(e.target.value) } : x.leg)))} />
+              </td>
+              <td>{aptName(v.from)} → {aptName(v.to)}</td>
+              <td>{dayTag(v.arr)}{hhmm(v.arr)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {errs.length > 0 && <p className="small-text neg">{errs[0]}</p>}
+      <p className="small-text muted">時刻はすべて日本時間です。海外の空港は24時間使えます。手で編集すると「固定」になります。</p>
     </div>
   );
 }

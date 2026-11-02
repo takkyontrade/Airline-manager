@@ -353,12 +353,13 @@ export function scheduledWeekly(s: GameState, routeId: string): number {
 
 // ---- manual edits --------------------------------------------------------
 
-export function setPlaneSchedule(s: GameState, planeId: string, legs: Leg[], base?: string): Result {
+export function setPlaneSchedule(s: GameState, planeId: string, legs: Leg[], base?: string, cycleDays?: number): Result {
   const p = s.planes.find((x) => x.id === planeId);
   if (!p) return fail('機体が見つかりません');
   const b = base ?? p.base;
+  const cycle = cycleDays === undefined ? p.cycleDays : Math.max(1, Math.min(7, Math.round(cycleDays)));
   // rotation problems are allowed while editing; such planes stay on the ground until fixed
-  const planes = s.planes.map((x) => (x.id === planeId ? { ...x, schedule: legs, base: b, locked: true } : x));
+  const planes = s.planes.map((x) => (x.id === planeId ? { ...x, schedule: legs, base: b, locked: true, cycleDays: cycle } : x));
   const use = slotUsage(s, planes);
   for (const code of slotAirports(s.year)) if ((use[code] ?? 0) > (s.slots[code] ?? 0)) return fail(`${AIRPORT_BY_CODE[code].name}の発着枠が足りません（${use[code]} / ${s.slots[code] ?? 0}）`);
   return ok({ ...s, planes });

@@ -103,7 +103,8 @@ export function competitors(s: GameState, a: string, b: string, year = s.year, m
     const hub = intl || HUB_GROUPS.has(a) || HUB_GROUPS.has(b);
     const threshold = seats * 0.6 * 30 * (r.role === 'local' || r.role === 'okinawa' ? 0.5 : 1) * (hub ? 1 : 3);
     if (demand < (intl ? seats * 0.6 * 2 * 4.33 * (r.role === 'foreign' ? 1 : 1.5) : threshold)) continue;
-    const supply = demand * 0.8 * share * capacityMul(r, year) * (1 + 0.3 * pressure);
+    const diff = s.difficulty === 'easy' ? 0.8 : s.difficulty === 'hard' ? 1.2 : 1;
+    const supply = demand * 0.8 * share * capacityMul(r, year) * (1 + 0.3 * pressure) * diff;
     const minWeekly = intl ? 2 : r.role === 'local' ? 3 : 7;
     const weekly = Math.max(minWeekly, Math.round(supply / (seats * 0.68 * 4.33)));
     out.push({ rival: r, weeklyFreq: weekly, seats, fareMul: r.fareMul * (1 - 0.12 * pressure), comfort: rivalComfort(year, r) });

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { advanceMonth, closeRoute, joinAlliance, newGame, openRoute, routeMarket, setOps, setRoute } from './sim';
+import { advanceMonth, closeRoute, joinAlliance, newGame, openRoute, routeMarket, setOps, setRoute, START_CASH } from './sim';
 import { autoSchedule, scheduledWeekly, setPlaneSchedule, slotUsage, validateRotation, legViews } from './schedule';
 import { acquireUsed, disposePlane, orderNew, leadMonths, startConversion, startHeavyCheck } from './fleet';
 import { creditLimit, takeLoan, repayLoan } from './finance';
@@ -389,5 +389,30 @@ describe('technical stops and the Cold War detour', () => {
     s = must(setRoute(s, s.routes[0].id, { via: 'ANC' }));
     expect(scheduledWeekly(s, s.routes[0].id)).toBeGreaterThan(0);
     expect(setRoute(s, s.routes[0].id, { via: 'HND' }).ok).toBe(false);
+  });
+});
+
+describe('start options and long-haul editing', () => {
+  test('later start years bring era-appropriate pilots and capital', () => {
+    const s = newGame('x', 'HND', 1, { startYear: 1986, difficulty: 'hard' });
+    expect(s.year).toBe(1986);
+    expect(s.pilots['b737-200'].rated).toBe(10);
+    expect(s.cash).toBeGreaterThan(START_CASH); // inflation outweighs the hard-mode cut
+    const easy = newGame('x', 'HND', 1, { startYear: 1986, difficulty: 'easy' });
+    expect(easy.cash).toBeGreaterThan(s.cash * 3);
+  });
+  test('a long-haul rotation can be retimed by hand', () => {
+    let s: GameState = { ...newGame('長距離', 'NRT', 4), year: 1995, reputation: 70, cash: 1e12, slots: { HND: 99, ITM: 99, NRT: 99 } };
+    s = { ...s, pilots: { 'b747-400': { rated: 60, training: [] } } };
+    for (let i = 0; i < 4; i++) { let id: string; [s, id] = withListing(s, 'b747-400'); s = must(acquireUsed(s, id, 'buy')); }
+    s = { ...s, planes: s.planes.map((p) => ({ ...p, base: 'NRT' })) };
+    s = must(openRoute(s, 'NRT', 'JFK'));
+    const p = s.planes.find((x) => x.schedule.length)!;
+    const legs = p.schedule.map((l, i) => (i === 0 ? { ...l, dep: 600 } : { ...l, dep: 600 + 1440 }));
+    s = must(setPlaneSchedule(s, p.id, legs, undefined, 3));
+    const q = s.planes.find((x) => x.id === p.id)!;
+    expect(q.locked).toBe(true);
+    expect(q.cycleDays).toBe(3);
+    expect(validateRotation(s, q)).toEqual([]);
   });
 });

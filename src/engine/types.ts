@@ -217,6 +217,7 @@ export interface GameState {
   codeshares?: string[];
   /** safety record */
   safety?: SafetyRecord;
+  difficulty?: 'easy' | 'normal' | 'hard';
   /** year the company was founded (for retro liveries) */
   foundedYear?: number;
   /** company livery */

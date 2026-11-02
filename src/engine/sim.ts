@@ -39,21 +39,40 @@ export const openAirports = (year: number) => AIRPORTS.filter((a) => isAirportOp
 
 // ---- new game -----------------------------------------------------------
 
-export function newGame(companyName: string, baseAirport: string, seed = Date.now()): GameState {
+export type Difficulty = 'easy' | 'normal' | 'hard';
+export const DIFFICULTY: Record<Difficulty, { label: string; cash: number; rivals: number; note: string }> = {
+  easy: { label: 'やさしい', cash: 2, rivals: 0.8, note: '資本金2倍、ライバルは控えめ' },
+  normal: { label: 'ふつう', cash: 1, rivals: 1, note: '' },
+  hard: { label: 'むずかしい', cash: 0.6, rivals: 1.2, note: '資本金6割、ライバルが積極的' },
+};
+
+/** Start years with a matching founding crew */
+export const START_OPTIONS: { year: number; label: string; pilotType: string; note: string }[] = [
+  { year: 1960, label: '1960年 プロペラ機の時代', pilotType: 'dc3', note: '航空の夜明け。中古のDC-3から始めて、ジェット時代を迎えます。' },
+  { year: 1972, label: '1972年 ジャンボと45・47体制', pilotType: 'ys11', note: '沖縄が復帰し、国内線は規制の時代。YS-11の資格を持つ乗員で始めます。' },
+  { year: 1986, label: '1986年 規制緩和と国際線開放', pilotType: 'b737-200', note: '国際線に参入できるようになった年。737の乗員で始めます。' },
+  { year: 2000, label: '2000年 自由化と新規参入', pilotType: 'b737-500', note: '運賃も路線も自由に。新規参入の航空会社として始めます。' },
+];
+
+export function newGame(companyName: string, baseAirport: string, seed = Date.now(), opts: { startYear?: number; difficulty?: Difficulty } = {}): GameState {
   const name = companyName.trim() || '新日本航空';
+  const year = opts.startYear ?? START_YEAR;
+  const diff = opts.difficulty ?? 'normal';
+  const start = START_OPTIONS.find((o) => o.year === year) ?? START_OPTIONS[0];
+  const cash = Math.round((START_CASH * econ.jpCpi(year) * DIFFICULTY[diff].cash) / 1e6) * 1e6;
   const s: GameState = {
     version: 3,
     companyName: name,
     baseAirport,
-    year: START_YEAR,
+    year,
     month: 1,
-    cash: START_CASH,
+    cash,
     reputation: 50,
     planes: [],
     routes: [],
     loans: [],
-    // the founders bring a few pilots rated on the ubiquitous DC-3
-    pilots: { dc3: { rated: 10, training: [] } },
+    // the founders bring a few pilots rated on a common type of the era
+    pilots: { [start.pilotType]: { rated: 10, training: [] } },
     maintLevel: 'standard',
     crewBases: [baseAirport],
     bufferMin: 15,
@@ -62,16 +81,17 @@ export function newGame(companyName: string, baseAirport: string, seed = Date.no
     usedMarket: [],
     history: [],
     news: [{
-      year: START_YEAR, month: 1, kind: 'info',
-      text: `${name}が${AIRPORT_BY_CODE[baseAirport].name}を拠点に設立されました。資本金は5億円、DC-3の資格を持つパイロットが10人います。`,
+      year, month: 1, kind: 'info',
+      text: `${name}が${AIRPORT_BY_CODE[baseAirport].name}を拠点に設立されました。資本金は${formatYen(cash)}、${AIRCRAFT_BY_ID[start.pilotType].name}の資格を持つパイロットが10人います。`,
     }],
     negativeCashMonths: 0,
     gameOver: false,
     nextId: 1,
     seed: seed >>> 0,
-    foundedYear: START_YEAR,
+    foundedYear: year,
     livery: { ...DEFAULT_COMPANY_LIVERY },
     fan: { farewells: [] },
+    difficulty: diff,
   };
   return refreshUsedMarket(s);
 }
