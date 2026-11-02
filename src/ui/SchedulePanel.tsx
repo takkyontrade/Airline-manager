@@ -78,7 +78,7 @@ export function SchedulePanel({ s, apply }: { s: GameState; apply: Apply }) {
               const next = nextSlotEvent(s, c);
               return (
                 <div key={c} className="slot-box">
-                  <div><strong>{aptName(c)}</strong> 使用 {use[c] ?? 0} / {s.slots[c] ?? 0} 回</div>
+                  <div><strong>{aptName(c)}</strong> 使用 {use[c] ?? 0} / {s.slots[c] ?? 0} 回 <span className="muted">（いちばん多い曜日）</span></div>
                   <div className="muted">
                     国の評価 {Math.round(sc.total * 100)}点（{sc.parts.map((p) => `${p.label}${Math.round(p.value * 100)}`).join('・')}）
                     → 次の増枠で全体の{Math.round(slotShare(sc.total) * 100)}%を配分
@@ -87,7 +87,7 @@ export function SchedulePanel({ s, apply }: { s: GameState; apply: Apply }) {
                 </div>
               );
             })}
-            <p className="muted">枠は新しい滑走路ができたときにまとめて増え、国の評価で各社に配られます。評価が高いと毎年4月にも少し増えます。2005年からは5年ごとに使っていない枠が回収されます。</p>
+            <p className="muted">枠は1日あたりの上限で、曜日ごとに数えます（週3便と週4便の路線で1往復分を分け合えます）。枠は新しい滑走路ができたときにまとめて増え、国の評価で各社に配られます。評価が高いと毎年4月にも少し増えます。2005年からは5年ごとに使っていない枠が回収されます。</p>
             <details className="muted">
               <summary>評価の内訳について</summary>
               <ul>

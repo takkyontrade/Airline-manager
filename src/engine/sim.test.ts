@@ -526,3 +526,18 @@ describe('slot allocation', () => {
     expect(allocateSlots(big).s.slots.HND).toBeLessThan(100);
   });
 });
+
+describe('slots per weekday', () => {
+  test('a 3x and a 4x weekly route share one daily round-trip slot', () => {
+    let s = newGame('t', 'HND', 1, { startYear: 2000 });
+    for (let i = 0; i < 2; i++) { let id: string; [s, id] = withListing(s, 'b737-500', 1); s = must(acquireUsed(s, id, 'buy')); }
+    s = { ...s, slots: { ...s.slots, HND: 2 } };
+    s = must(openRoute(s, 'HND', 'FUK'));
+    s = must(setRoute(s, s.routes[0].id, { targetWeekly: 3 }));
+    s = must(openRoute(s, 'HND', 'CTS'));
+    s = must(setRoute(s, s.routes[1].id, { targetWeekly: 4 }));
+    expect(scheduledWeekly(s, s.routes[0].id)).toBe(3);
+    expect(scheduledWeekly(s, s.routes[1].id)).toBe(4);
+    expect(slotUsage(s).HND).toBe(2);
+  });
+});

@@ -121,19 +121,32 @@ export function validateRotation(s: GameState, p: Plane, legs = p.schedule, base
 }
 
 /** Daily movements we use at each slot airport */
-export function slotUsage(s: GameState, planes = s.planes): Record<string, number> {
-  const use: Record<string, number> = {};
+/** Slot movements used on each weekday (0-6) at slot airports */
+export function slotUsageByDay(s: GameState, planes = s.planes): Record<string, number[]> {
+  const use: Record<string, number[]> = {};
   const slotSet = new Set(slotAirports(s.year));
   for (const p of planes) {
     if (p.status === 'onOrder') continue;
-    const perDay = 1 / (p.cycleDays ?? 1);
+    const cyc = p.cycleDays ?? 1;
     for (const leg of p.schedule) {
       const r = s.routes.find((x) => x.id === leg.routeId);
       if (!r) continue;
-      for (const code of [r.from, r.to]) if (slotSet.has(code)) use[code] = (use[code] ?? 0) + perDay;
+      for (const code of [r.from, r.to]) {
+        if (!slotSet.has(code)) continue;
+        const u = (use[code] ??= [0, 0, 0, 0, 0, 0, 0]);
+        // multi-day rotations: spread evenly; otherwise only on the days flown
+        for (let d = 0; d < 7; d++) u[d] += cyc > 1 ? 1 / cyc : (leg.days >> d) & 1;
+      }
     }
   }
   return use;
+}
+
+/** Slot movements used on the busiest weekday — slots are a daily limit, so days not flown are free for other routes */
+export function slotUsage(s: GameState, planes = s.planes): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [code, days] of Object.entries(slotUsageByDay(s, planes))) out[code] = Math.round(Math.max(...days) * 10) / 10;
+  return out;
 }
 
 // ---- weekly route stats ----------------------------------------------------
@@ -234,9 +247,17 @@ export function autoSchedule(s: GameState): GameState {
     const flown = lockedPlanes.reduce((n, p) => n + p.schedule.filter((l) => l.routeId === route.id && l.dir === 0).reduce((m, l) => m + legsPerWeek(p, l), 0), 0);
     return { route, remainingWeekly: Math.max(0, route.targetWeekly - flown) };
   });
-  const slotLeft: Record<string, number> = {};
-  const usedByLocked = slotUsage(s, lockedPlanes);
-  for (const code of slotAirports(s.year)) slotLeft[code] = (s.slots[code] ?? 0) - (usedByLocked[code] ?? 0);
+  const slotLeft: Record<string, number[]> = {};
+  const usedByLocked = slotUsageByDay(s, lockedPlanes);
+  for (const code of slotAirports(s.year)) slotLeft[code] = [0, 1, 2, 3, 4, 5, 6].map((d) => (s.slots[code] ?? 0) - (usedByLocked[code]?.[d] ?? 0));
+  /** a days mask for n flights a week where every touched slot airport has room; null if none */
+  const slotDays = (n: number, touches: Record<string, number>): number | null => {
+    const masks = n >= 7 ? [DAILY] : [0, 1, 2, 3, 4, 5, 6].map((k) => { const m = spreadDays(n); return ((m << k) | (m >> (7 - k))) & DAILY; });
+    return masks.find((m) => Object.entries(touches).every(([code, c]) => [0, 1, 2, 3, 4, 5, 6].every((d) => !((m >> d) & 1) || slotLeft[code][d] >= c - 1e-9))) ?? null;
+  };
+  const takeSlots = (mask: number, touches: Record<string, number>, perDay = 1) => {
+    for (const [code, c] of Object.entries(touches)) for (let d = 0; d < 7; d++) if ((mask >> d) & 1) slotLeft[code][d] -= c * perDay;
+  };
 
   const result = new Map<string, Plane>();
   // longest routes first: they are the hardest to fit
@@ -293,8 +314,10 @@ export function autoSchedule(s: GameState): GameState {
         if (!fits) continue;
         const touches: Record<string, number> = {};
         for (const g of segs) for (const code of [g.from, g.to]) if (code in slotLeft) touches[code] = (touches[code] ?? 0) + 1;
-        if (Object.entries(touches).some(([code, n]) => slotLeft[code] < n)) continue;
-        for (const [code, n] of Object.entries(touches)) slotLeft[code] -= n;
+        const mask = slotDays(perWeek, touches);
+        if (mask === null) continue;
+        takeSlots(mask, touches);
+        for (const l of legs) l.days = mask;
         p.schedule.push(...legs);
         state.time.set(p.id, ready);
         remaining -= perWeek;
@@ -316,7 +339,6 @@ export function autoSchedule(s: GameState): GameState {
     {
       // a "daily" round trip covers 7 per week; the last one may run on fewer days
       const perWeek = Math.min(7, need.remainingWeekly);
-      const days = perWeek >= 7 ? DAILY : spreadDays(perWeek);
       let placed = false;
       // if no plane is based at either end, move an idle plane there
       if (!planes.some((p) => (p.base === r.from || p.base === r.to) && suits(p, r) && (!r.typeId || p.typeId === r.typeId) && canFly(planeType(p), r.from, r.to, s.year, r.via).ok)) {
@@ -366,9 +388,10 @@ export function autoSchedule(s: GameState): GameState {
           if (p.schedule.length || state.time.get(p.id)! > 0) continue;
           const cyc = longHaulCycle(s, p, r, outDir, turn);
           if (!cyc) continue;
-          const touchesL = [r.from, r.to].filter((c) => c in slotLeft);
-          if (touchesL.some((c) => slotLeft[c] < 2 / cyc.days)) continue;
-          for (const c of touchesL) slotLeft[c] -= 2 / cyc.days;
+          const touchesL: Record<string, number> = {};
+          for (const c of [r.from, r.to]) if (c in slotLeft) touchesL[c] = 2 / cyc.days;
+          if (slotDays(7, touchesL) === null) continue;
+          takeSlots(DAILY, touchesL);
           p.schedule.push(...cyc.legs);
           p.cycleDays = cyc.days;
           state.time.set(p.id, Infinity);
@@ -377,12 +400,14 @@ export function autoSchedule(s: GameState): GameState {
           break;
         }
         // slots: each round trip uses 2 movements at each slot airport it touches
-        const touches = [r.from, r.to].filter((c) => c in slotLeft);
-        if (touches.some((c) => slotLeft[c] < 2)) continue;
-        for (const c of touches) slotLeft[c] -= 2;
+        const touches: Record<string, number> = {};
+        for (const c of [r.from, r.to]) if (c in slotLeft) touches[c] = 2;
+        const mask = slotDays(perWeek, touches);
+        if (mask === null) continue;
+        takeSlots(mask, touches);
         const arr = chosen + block;
         const back = Math.ceil(Math.max(arr + turn, openA) / 5) * 5;
-        p.schedule.push({ routeId: r.id, dir: outDir, dep: chosen, days }, { routeId: r.id, dir: (1 - outDir) as 0 | 1, dep: back, days });
+        p.schedule.push({ routeId: r.id, dir: outDir, dep: chosen, days: mask }, { routeId: r.id, dir: (1 - outDir) as 0 | 1, dep: back, days: mask });
         note(`${r.id}:${outDir}`, p.base, chosen);
         note(`${r.id}:${1 - outDir}`, away, back);
         state.time.set(p.id, back + block + turn);
