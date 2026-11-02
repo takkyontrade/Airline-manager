@@ -19,7 +19,10 @@ export const hhmm = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2
 export function airportHours(code: string, year: number): [number, number] {
   if (code === 'HND') return year >= 2010 ? [0, 1440] : [360, 1380];
   if (code === 'ITM') return [420, 1260];
-  if (['CTS', 'FUK', 'NGO', 'OKA'].includes(code)) return [390, 1320];
+  if (code === 'KIX') return [0, 1440];
+  if (code === 'NRT') return [360, 1380];
+  if (code === 'NGO') return [0, 1440];
+  if (['CTS', 'FUK', 'NKM', 'OKA'].includes(code)) return [390, 1320];
   if (ISLANDS.has(code)) return [480, 1170];
   return [450, 1230];
 }
@@ -82,7 +85,7 @@ export function validateRotation(s: GameState, p: Plane, legs = p.schedule, base
     if (v.dep < ready) errs.push(`${hhmm(v.dep)}発の便は折り返し時間が足りません（${hhmm(ready)}以降）`);
     if (v.dep < open) errs.push(`${AIRPORT_BY_CODE[v.from].name}は${hhmm(open)}まで使えません`);
     if (v.arr > close) errs.push(`${AIRPORT_BY_CODE[v.to].name}の運用時間（〜${hhmm(close)}）を過ぎて到着します`);
-    const check = canFly(planeType(p), v.route.from, v.route.to);
+    const check = canFly(planeType(p), v.route.from, v.route.to, s.year);
     if (!check.ok) errs.push(check.reason);
     at = v.to;
     ready = v.arr + minTurnMin(p);
@@ -216,13 +219,13 @@ export function autoSchedule(s: GameState): GameState {
       const days = perWeek >= 7 ? DAILY : spreadDays(perWeek);
       let placed = false;
       // if no plane is based at either end, move an idle plane there
-      if (!planes.some((p) => (p.base === r.from || p.base === r.to) && (!r.typeId || p.typeId === r.typeId) && canFly(planeType(p), r.from, r.to).ok)) {
-        const idle = planes.find((p) => p.schedule.length === 0 && (!r.typeId || p.typeId === r.typeId) && canFly(planeType(p), r.from, r.to).ok);
+      if (!planes.some((p) => (p.base === r.from || p.base === r.to) && (!r.typeId || p.typeId === r.typeId) && canFly(planeType(p), r.from, r.to, s.year).ok)) {
+        const idle = planes.find((p) => p.schedule.length === 0 && (!r.typeId || p.typeId === r.typeId) && canFly(planeType(p), r.from, r.to, s.year).ok);
         if (idle) idle.base = s.crewBases.includes(r.to) ? r.to : r.from;
       }
       for (const p of planes) {
         if (r.typeId && p.typeId !== r.typeId) continue;
-        if (!canFly(planeType(p), r.from, r.to).ok) continue;
+        if (!canFly(planeType(p), r.from, r.to, s.year).ok) continue;
         if (p.base !== r.from && p.base !== r.to) continue;
         const outDir: 0 | 1 = p.base === r.from ? 0 : 1;
         const away = outDir === 0 ? r.to : r.from;

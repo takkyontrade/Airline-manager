@@ -19,6 +19,8 @@ import {
 } from '../engine/model';
 import type { GameState, MaintLevel, MonthReport, Plane, SchedulePolicy } from '../engine/types';
 import { PlaneSilhouette } from './PlaneSilhouette';
+import { fareBand, routeLicensing } from '../data/history';
+import { rivalOverview } from '../engine/rivals';
 
 type Apply = (r: Result) => void;
 
@@ -54,7 +56,7 @@ export function RoutesPanel({ s, apply, onHover }: { s: GameState; apply: Apply;
               <label>
                 運賃（片道）
                 <input type="number" step={100} value={r.fareYen} onChange={(e) => apply(setRoute(s, r.id, { fareYen: Number(e.target.value) }))} />
-                <span className="muted">相場 {num(f.refFare)}円</span>
+                <span className="muted">相場 {num(f.refFare)}円{fareBand(s.year) && `（認可運賃：相場の${Math.round(fareBand(s.year)![0] * 100)}〜${Math.round(fareBand(s.year)![1] * 100)}%）`}</span>
               </label>
               <label>
                 目標：週の往復便数
@@ -67,7 +69,7 @@ export function RoutesPanel({ s, apply, onHover }: { s: GameState; apply: Apply;
                 使う機種
                 <select value={r.typeId ?? ''} onChange={(e) => apply(setRoute(s, r.id, { typeId: e.target.value || null }))}>
                   <option value="">おまかせ</option>
-                  {ownedTypes.map((id) => <option key={id} value={id} disabled={!canFly(AIRCRAFT_BY_ID[id], r.from, r.to).ok}>{AIRCRAFT_BY_ID[id].name}</option>)}
+                  {ownedTypes.map((id) => <option key={id} value={id} disabled={!canFly(AIRCRAFT_BY_ID[id], r.from, r.to, s.year).ok}>{AIRCRAFT_BY_ID[id].name}</option>)}
                 </select>
               </label>
               <label>
@@ -82,7 +84,10 @@ export function RoutesPanel({ s, apply, onHover }: { s: GameState; apply: Apply;
               </label>
             </div>
             <div className="muted small-text">
-              他社：週{f.incumbentFreq}往復 ／ 市場：月{num(f.marketOneWay * 2)}人 ／ 予想シェア {pct(f.share)}
+              市場：月{num(f.marketOneWay * 2)}人 ／ 予想シェア {pct(f.share)} ／ 他社：
+              {f.rivals.length === 0 ? 'なし（独占）' : f.rivals.map((c) => (
+                <span key={c.rival.id} className="rival-chip" style={{ borderColor: c.rival.color }}>{c.rival.name} 週{c.weeklyFreq}往復・{num(f.refFare * c.fareMul)}円</span>
+              ))}
             </div>
             {res && (
               <div className="small-text">
@@ -466,3 +471,32 @@ export function NewsPanel({ s }: { s: GameState }) {
 }
 
 export { nowYM };
+
+const ROLE_LABEL: Record<string, string> = { flag: 'ナショナルフラッグ', major: '大手', local: 'ローカル線', okinawa: '沖縄', entrant: '新規参入', lcc: 'LCC' };
+
+export function RivalsPanel({ s }: { s: GameState }) {
+  const list = rivalOverview(s);
+  const band = fareBand(s.year);
+  return (
+    <div>
+      <h3>いまの時代のルール</h3>
+      <p className="small-text">{routeLicensing(s.year).label}</p>
+      <p className="small-text">{band ? `運賃は認可制で、相場の${Math.round(band[0] * 100)}〜${Math.round(band[1] * 100)}%の範囲でしか決められません。` : '運賃は自由に決められます。'}</p>
+      <p className="small-text muted">免許が必要な時代でも、ローカル線や他社が飛んでいない路線は開設できます。幹線に入るには実績（評判と機材）が必要です。</p>
+      <h3>ライバル会社</h3>
+      <div className="list">
+        {list.map((o) => (
+          <div key={o.rival.id} className="card" style={{ borderLeft: `4px solid ${o.rival.color}` }}>
+            <div className="card-head">
+              <strong>{o.rival.name}</strong>
+              <span className="muted small-text">{ROLE_LABEL[o.rival.role]}</span>
+              <span className="small-text">{o.routes}路線・週{num(o.weekly)}往復</span>
+            </div>
+            <div className="small-text muted">主な路線：{o.top.join('、')}</div>
+            <div className="small-text muted">運賃 相場の{Math.round(o.rival.fareMul * 100)}%・快適さ {o.rival.comfortMul >= 1.05 ? '高め' : o.rival.comfortMul <= 0.9 ? '控えめ' : '普通'}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}

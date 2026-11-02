@@ -6,7 +6,7 @@ import { AIRCRAFT_TYPES } from '../data/aircraft';
 import { econ, yearFrac } from '../data/economy';
 import {
   ADMIN_SHARE, blockHours, cabinCostMonthly, flightCost, fuelFactor, groundCostPerPax,
-  HEAVY_CHECK_HOURS, incumbentComfort, incumbentWeeklyFreq, MAINT_LEVELS, maintAgeFactor,
+  HEAVY_CHECK_HOURS, MAINT_LEVELS, maintAgeFactor,
   marketDemand, overheadMonthly, pilotWage, referenceFare, routeDistance, SALES_COMMISSION,
 } from './model';
 import {
@@ -20,6 +20,9 @@ import {
 } from './schedule';
 import type { GameState, MaintLevel, MonthCosts, MonthReport, Plane, Route, RouteResult, SchedulePolicy } from './types';
 import { fail, formatYen, nextId, ok, rng, withNews, type Result } from './util';
+import { isTrunk, competitors, pairKey, updatePressure, type Competitor } from './rivals';
+import { fareBand, GROUNDINGS, HISTORY_NEWS, RAIL_OPENINGS, DEMAND_EVENTS, routeLicensing } from '../data/history';
+import { RIVAL_EVENTS } from '../data/rivals';
 
 export { formatYen, type Result } from './util';
 export { planeType, planeAge } from './fleet';
@@ -89,12 +92,31 @@ export function toggleCrewBase(s: GameState, code: string): Result {
 /** Planes that can actually fly this month: delivered, not in heavy check, crewed, not grounded */
 export function flyablePlanes(s: GameState): Set<string> {
   const crewed = crewedPlanes(s);
-  return new Set(s.planes.filter((p) => p.status === 'active' && crewed.has(p.id) && !heavyCheckOverdue(p) && validateRotation(s, p).length === 0).map((p) => p.id));
+  return new Set(s.planes.filter((p) => p.status === 'active' && crewed.has(p.id) && !heavyCheckOverdue(p) && !isGrounded(p.typeId, s.year, s.month) && validateRotation(s, p).length === 0).map((p) => p.id));
+}
+
+export function isGrounded(typeId: string, year: number, month: number): boolean {
+  const t = year * 12 + month;
+  return GROUNDINGS.some((g) => g.typeId === typeId && t >= g.from[0] * 12 + g.from[1] && t <= g.to[0] * 12 + g.to[1]);
+}
+
+/** Government approval for a new route (regulated eras) */
+export function routeApproval(s: GameState, from: string, to: string): { ok: boolean; reason: string } {
+  const lic = routeLicensing(s.year);
+  if (!lic.required) return { ok: true, reason: lic.label };
+  const rivals = competitors(s, from, to);
+  if (rivals.length === 0) return { ok: true, reason: '他社が飛んでいない路線なので免許が下りました' };
+  if (!isTrunk(from, to)) return { ok: true, reason: 'ローカル線なので免許が下りました' };
+  const fleet = s.planes.filter((p) => p.status !== 'onOrder').length;
+  const need = s.year < 1986 ? { rep: 52, fleet: 2 } : { rep: 45, fleet: 1 };
+  if (s.reputation >= need.rep && fleet >= need.fleet) return { ok: true, reason: '実績が認められ、免許が下りました' };
+  return { ok: false, reason: `${lic.label}。幹線への参入には評判${need.rep}以上・機材${need.fleet}機以上の実績が必要です` };
 }
 
 export const planesOnRoute = (s: GameState, routeId: string) => s.planes.filter((p) => p.schedule.some((l) => l.routeId === routeId));
 
-export function openRoute(s: GameState, from: string, to: string): Result {
+/** `skipLicense` is for tests and sandbox tools only */
+export function openRoute(s: GameState, from: string, to: string, opts: { skipLicense?: boolean } = {}): Result {
   if (from === to) return fail('同じ空港同士は結べません');
   const a = AIRPORT_BY_CODE[from];
   const b = AIRPORT_BY_CODE[to];
@@ -102,6 +124,8 @@ export function openRoute(s: GameState, from: string, to: string): Result {
   if (!isAirportOpen(a, s.year) || !isAirportOpen(b, s.year)) return fail('まだ開港していない空港があります');
   if (s.routes.some((r) => (r.from === from && r.to === to) || (r.from === to && r.to === from)))
     return fail('すでに開設済みの路線です');
+  const approval = routeApproval(s, from, to);
+  if (!approval.ok && !opts.skipLicense) return fail(approval.reason);
   const [id, s2] = nextId(s, 'R');
   const km = routeDistance(from, to);
   const route: Route = {
@@ -129,6 +153,11 @@ export function setRoute(s: GameState, routeId: string, patch: RoutePatch): Resu
   const next = { ...r, ...patch };
   next.targetWeekly = Math.max(0, Math.min(140, Math.round(next.targetWeekly)));
   next.fareYen = Math.max(100, Math.round(next.fareYen / 10) * 10);
+  const band = fareBand(s.year);
+  if (band && patch.fareYen !== undefined) {
+    const ref = referenceFare(routeDistance(r.from, r.to), s.year, s.month);
+    next.fareYen = Math.round(Math.min(ref * band[1], Math.max(ref * band[0], next.fareYen)) / 10) * 10;
+  }
   const s2 = { ...s, routes: s.routes.map((x) => (x.id === routeId ? next : x)) };
   // fares don't change the timetable
   const scheduleChanged = patch.targetWeekly !== undefined || patch.typeId !== undefined || patch.policy !== undefined;
@@ -140,7 +169,7 @@ export function setRoute(s: GameState, routeId: string, patch: RoutePatch): Resu
 export interface RouteForecast {
   marketOneWay: number;
   share: number;
-  incumbentFreq: number;
+  rivals: Competitor[];
   refFare: number;
   weeklyRt: number;
 }
@@ -161,20 +190,29 @@ export function routeMarket(s: GameState, route: Route, fly = flyablePlanes(s)):
   const km = routeDistance(route.from, route.to);
   const ref = referenceFare(km, year, month);
   const base = marketDemand(route.from, route.to, year, month);
-  const inc = incumbentWeeklyFreq(route.from, route.to, year, month);
+  const rivals = competitors(s, route.from, route.to);
   const wk = routeWeekly(s, route, fly);
   const effFreq = (wk.weight[0] + wk.weight[1]) / 2; // time-of-day weighted weekly departures
   const repF = (s.reputation / 50) ** 0.3;
   const otpF = 0.8 + 0.25 * lastOnTime(s, route.id);
   const priceRatio = route.fareYen / ref;
   const aUs = effFreq > 0 ? effFreq ** 0.8 * priceRatio ** -2 * routeComfort(wk.legs) * repF * otpF : 0;
-  const aInc = inc > 0 ? inc ** 0.8 * incumbentComfort(year) : 0;
-  const share = aUs + aInc > 0 ? aUs / (aUs + aInc) : 0;
-  const totalFreq = wk.roundTrips + inc;
-  const avgPriceRatio = aUs + aInc > 0 ? (aUs * priceRatio + aInc) / (aUs + aInc) : 1;
+  let aRivals = 0;
+  let rivalPriceSum = 0;
+  let rivalFreq = 0;
+  for (const c of rivals) {
+    const a = c.weeklyFreq ** 0.8 * c.fareMul ** -2 * c.comfort;
+    aRivals += a;
+    rivalPriceSum += a * c.fareMul;
+    rivalFreq += c.weeklyFreq;
+  }
+  const total = aUs + aRivals;
+  const share = total > 0 ? aUs / total : 0;
+  const totalFreq = wk.roundTrips + rivalFreq;
+  const avgPriceRatio = total > 0 ? (aUs * priceRatio + rivalPriceSum) / total : 1;
   const freqF = 0.6 + 0.4 * Math.min(1.3, totalFreq / 14);
   const marketOneWay = base * avgPriceRatio ** -1.1 * freqF;
-  return { marketOneWay, share, incumbentFreq: inc, refFare: ref, weeklyRt: wk.roundTrips };
+  return { marketOneWay, share, rivals, refFare: ref, weeklyRt: wk.roundTrips };
 }
 
 // ---- monthly simulation -------------------------------------------------
@@ -254,6 +292,7 @@ export function advanceMonth(s0: GameState): GameState {
 
   const hours: Record<string, number> = {};
   const routes: RouteResult[] = [];
+  const shareByPair: Record<string, number> = {};
   let revenue = 0;
   let delayedFlights = 0;
   let totalFlights = 0;
@@ -297,6 +336,7 @@ export function advanceMonth(s0: GameState): GameState {
     revenue += rev;
     totalFlights += flights + cancelled;
     onTimeFlights += onTime;
+    shareByPair[pairKey(route.from, route.to)] = f.share;
     routes.push({
       routeId: route.id, flights, seats, pax, demand: want, marketDemand: f.marketOneWay * 2, share: f.share,
       revenue: rev, cost, onTime: flights + cancelled > 0 ? onTime / (flights + cancelled) : 1, cancelled,
@@ -358,7 +398,7 @@ export function advanceMonth(s0: GameState): GameState {
   const repTarget = Math.max(15, Math.min(90, 30 + 30 * avgComfort - 10 * Math.min(1, spill) + otpTerm));
   const reputation = s.reputation + (repTarget - s.reputation) * 0.05;
 
-  let next: GameState = { ...s, planes, cash, reputation, loans: debtService.loans, hiresThisMonth: {}, monthExpenses: {} };
+  let next: GameState = { ...s, planes, cash, reputation, loans: debtService.loans, hiresThisMonth: {}, monthExpenses: {}, aiPressure: updatePressure(s, shareByPair) };
 
   const grounded = s.planes.filter((p) => p.status === 'active' && heavyCheckOverdue(p));
   for (const p of grounded) next = withNews(next, `${planeType(p).name}（${p.regNo}）は重整備の期限切れで飛行停止中です。`, 'bad');
@@ -389,10 +429,44 @@ export function advanceMonth(s0: GameState): GameState {
     for (const a of AIRPORTS) if (a.openYear === year) next = withNews(next, `${a.name}空港（${a.city}）が開港し、定期便を飛ばせるようになりました。`, 'history');
     for (const t of AIRCRAFT_TYPES) if (t.introYear === year) next = withNews(next, `新型機「${t.name}」（${t.maker}）の受注が始まりました。`, 'history');
   }
+  next = historyNews(next);
   for (const p of next.planes) {
     if (p.status === 'onOrder' && p.readyYM === nowYM(next) + 1) next = withNews(next, `来月（${ymLabel(p.readyYM)}）${planeType(p).name}が納入されます。パイロットの準備をしておきましょう。`);
   }
   return refreshUsedMarket(next);
+}
+
+/** News and world changes at the start of a new month */
+function historyNews(s0: GameState): GameState {
+  let s = s0;
+  const { year, month } = s;
+  const t = year * 12 + month;
+  for (const n of HISTORY_NEWS) if (n.year === year && n.month === month) s = withNews(s, n.text, 'history');
+  for (const r of RAIL_OPENINGS) if (r.year === year && r.month === month) s = withNews(s, `${r.name}が開業しました。並行する航空路線の需要が減ります。`, 'history');
+  for (const e of DEMAND_EVENTS) if (e.from[0] * 12 + e.from[1] === t) s = withNews(s, `${e.title}${e.multiplier >= 1 ? '（需要が増えています）' : '（需要が落ち込んでいます）'}`, 'history');
+  for (const g of GROUNDINGS) if (g.from[0] * 12 + g.from[1] === t && (s.planes.some((p) => p.typeId === g.typeId) || g.typeId === 'dc10')) s = withNews(s, g.title, 'bad');
+  for (const e of RIVAL_EVENTS) if (e.year === year && e.month === month) s = withNews(s, e.text, 'history');
+  // routes touching airports that closed this year
+  if (month === 1) {
+    if (AIRPORT_BY_CODE[s.baseAirport].closeYear === year) {
+      const successor = AIRPORTS.find((a) => a.cityGroup && a.cityGroup === AIRPORT_BY_CODE[s.baseAirport].cityGroup && isAirportOpen(a, year));
+      if (successor) s = withNews({ ...s, baseAirport: successor.code, crewBases: [...new Set([...s.crewBases, successor.code])] }, `本社の拠点を${successor.name}に移しました。`, 'history');
+    }
+    const closed = s.routes.filter((r) => [r.from, r.to].some((c) => AIRPORT_BY_CODE[c].closeYear === year));
+    for (const r of closed) {
+      const res = closeRoute(s, r.id);
+      if (res.ok) s = withNews(res.state, `${AIRPORT_BY_CODE[r.from].name}〜${AIRPORT_BY_CODE[r.to].name}線は空港の移転・閉鎖で廃止になりました。`, 'bad');
+    }
+    for (const p of s.planes) if (AIRPORT_BY_CODE[p.base].closeYear === year) s = { ...s, planes: s.planes.map((x) => (x.id === p.id ? { ...x, base: s.baseAirport, schedule: [], locked: false } : x)) };
+  }
+  // runway extensions
+  if (month === 1) {
+    for (const a of AIRPORTS) {
+      const ext = a.runways.find(([y], i) => i > 0 && y === year);
+      if (ext && isAirportOpen(a, year)) s = withNews(s, `${a.name}空港の滑走路が${ext[1]}mになり、大きな機体が使えるようになりました。`, 'history');
+    }
+  }
+  return s;
 }
 
 export { HEAVY_CHECK_HOURS, blockHours };

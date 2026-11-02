@@ -1,7 +1,5 @@
-// Japanese airports. Coordinates are real; open years, runway lengths and
+// Japanese airports. Coordinates are real; open years, runway histories and
 // catchment populations are approximate values for game balance.
-// TODO(stage 4): verify open years / runway history against public sources
-// and add runway-extension events, Narita/Kansai/Chubu, airport relocations.
 
 export interface Airport {
   code: string; // IATA
@@ -10,67 +8,101 @@ export interface Airport {
   lat: number;
   lon: number;
   openYear: number; // 民間定期便が使えるようになる年（概算）
-  runwayM: number; // 開港時（または1960年時点）の滑走路長（概算）
+  closeYear?: number; // この年から使えない（移転など）
+  /** runway length history: [year, metres] — the latest entry not after the current year applies */
+  runways: [number, number][];
   popM: number; // 後背地人口（百万人, 1960年頃）
   tourism: number; // 観光係数 1 = 普通
   region: string;
+  island?: boolean; // 離島（鉄道と競合しない）
+  /** airports sharing a city (e.g. Haneda and Narita): demand is split between them */
+  cityGroup?: string;
 }
+
+const A = (code: string, name: string, city: string, lat: number, lon: number, openYear: number, runways: [number, number][], popM: number, tourism: number, region: string, extra: Partial<Airport> = {}): Airport =>
+  ({ code, name, city, lat, lon, openYear, runways, popM, tourism, region, ...extra });
 
 export const AIRPORTS: Airport[] = [
   // 北海道
-  { code: 'CTS', name: '千歳', city: '札幌', lat: 42.775, lon: 141.692, openYear: 1951, runwayM: 2700, popM: 1.6, tourism: 1.3, region: '北海道' },
-  { code: 'HKD', name: '函館', city: '函館', lat: 41.770, lon: 140.822, openYear: 1961, runwayM: 1200, popM: 0.5, tourism: 1.4, region: '北海道' },
-  { code: 'KUH', name: '釧路', city: '釧路', lat: 43.041, lon: 144.193, openYear: 1961, runwayM: 1200, popM: 0.4, tourism: 1.2, region: '北海道' },
-  { code: 'OBO', name: '帯広', city: '帯広', lat: 42.733, lon: 143.217, openYear: 1964, runwayM: 1200, popM: 0.35, tourism: 1.1, region: '北海道' },
-  { code: 'MMB', name: '女満別', city: '網走・北見', lat: 43.881, lon: 144.164, openYear: 1963, runwayM: 1200, popM: 0.35, tourism: 1.4, region: '北海道' },
-  { code: 'WKJ', name: '稚内', city: '稚内', lat: 45.404, lon: 141.801, openYear: 1960, runwayM: 1200, popM: 0.1, tourism: 1.3, region: '北海道' },
-  { code: 'AKJ', name: '旭川', city: '旭川', lat: 43.671, lon: 142.447, openYear: 1966, runwayM: 1200, popM: 0.5, tourism: 1.2, region: '北海道' },
+  A('CTS', '千歳（新千歳）', '札幌', 42.775, 141.692, 1951, [[1951, 2700], [1963, 3000]], 1.6, 1.3, '北海道'),
+  A('HKD', '函館', '函館', 41.770, 140.822, 1961, [[1961, 1200], [1971, 2000], [1978, 2500], [1999, 3000]], 0.5, 1.4, '北海道'),
+  A('KUH', '釧路', '釧路', 43.041, 144.193, 1961, [[1961, 1200], [1971, 1800], [1984, 2300], [2000, 2500]], 0.4, 1.2, '北海道'),
+  A('OBO', '帯広', '帯広', 42.733, 143.217, 1964, [[1964, 1200], [1981, 2500]], 0.35, 1.1, '北海道'),
+  A('MMB', '女満別', '網走・北見', 43.881, 144.164, 1963, [[1963, 1200], [1985, 2000], [2000, 2500]], 0.35, 1.4, '北海道'),
+  A('WKJ', '稚内', '稚内', 45.404, 141.801, 1960, [[1960, 1200], [1987, 2000], [2009, 2200]], 0.1, 1.3, '北海道'),
+  A('AKJ', '旭川', '旭川', 43.671, 142.447, 1966, [[1966, 1200], [1982, 2000], [1997, 2500]], 0.5, 1.2, '北海道'),
+  A('SHB', '中標津', '根室', 43.577, 144.960, 1966, [[1966, 1200], [1989, 2000]], 0.1, 1.2, '北海道'),
+  A('MBE', 'オホーツク紋別', '紋別', 44.304, 143.404, 1999, [[1999, 2000]], 0.06, 1.2, '北海道'),
   // 東北
-  { code: 'AOJ', name: '青森', city: '青森', lat: 40.735, lon: 140.691, openYear: 1964, runwayM: 1200, popM: 0.6, tourism: 1.0, region: '東北' },
-  { code: 'MSJ', name: '三沢', city: '三沢・八戸', lat: 40.703, lon: 141.368, openYear: 1975, runwayM: 3000, popM: 0.5, tourism: 0.9, region: '東北' },
-  { code: 'HNA', name: '花巻', city: '盛岡', lat: 39.429, lon: 141.135, openYear: 1964, runwayM: 1200, popM: 0.7, tourism: 1.0, region: '東北' },
-  { code: 'AXT', name: '秋田', city: '秋田', lat: 39.616, lon: 140.219, openYear: 1961, runwayM: 1200, popM: 0.7, tourism: 1.0, region: '東北' },
-  { code: 'GAJ', name: '山形', city: '山形', lat: 38.412, lon: 140.371, openYear: 1964, runwayM: 1200, popM: 0.7, tourism: 1.0, region: '東北' },
-  { code: 'SDJ', name: '仙台', city: '仙台', lat: 38.140, lon: 140.917, openYear: 1957, runwayM: 1200, popM: 1.4, tourism: 1.0, region: '東北' },
-  // 関東・甲信越
-  { code: 'HND', name: '羽田', city: '東京', lat: 35.553, lon: 139.781, openYear: 1931, runwayM: 2550, popM: 17.0, tourism: 1.1, region: '関東' },
-  { code: 'OIM', name: '大島', city: '伊豆大島', lat: 34.782, lon: 139.360, openYear: 1964, runwayM: 1200, popM: 0.02, tourism: 3.0, region: '関東' },
-  { code: 'HAC', name: '八丈島', city: '八丈島', lat: 33.115, lon: 139.786, openYear: 1955, runwayM: 1200, popM: 0.02, tourism: 3.0, region: '関東' },
-  { code: 'KIJ', name: '新潟', city: '新潟', lat: 37.956, lon: 139.121, openYear: 1958, runwayM: 1300, popM: 1.3, tourism: 1.0, region: '中部' },
+  A('AOJ', '青森', '青森', 40.735, 140.691, 1964, [[1964, 1200], [1987, 2500], [2005, 3000]], 0.6, 1.0, '東北'),
+  A('MSJ', '三沢', '三沢・八戸', 40.703, 141.368, 1975, [[1975, 3000]], 0.5, 0.9, '東北'),
+  A('ONJ', '大館能代', '大館', 40.192, 140.371, 1998, [[1998, 2000]], 0.2, 1.0, '東北'),
+  A('HNA', '花巻', '盛岡', 39.429, 141.135, 1964, [[1964, 1200], [1983, 2000], [2006, 2500]], 0.7, 1.0, '東北'),
+  A('AXT', '秋田', '秋田', 39.616, 140.219, 1961, [[1961, 1200], [1981, 2500]], 0.7, 1.0, '東北'),
+  A('SYO', '庄内', '鶴岡・酒田', 38.812, 139.787, 1991, [[1991, 2000]], 0.3, 1.0, '東北'),
+  A('GAJ', '山形', '山形', 38.412, 140.371, 1964, [[1964, 1200], [1981, 2000]], 0.7, 1.0, '東北'),
+  A('SDJ', '仙台', '仙台', 38.140, 140.917, 1957, [[1957, 1200], [1966, 2000], [1998, 3000]], 1.4, 1.0, '東北'),
+  A('FKS', '福島', '郡山・福島', 37.227, 140.431, 1993, [[1993, 2500]], 0.8, 0.9, '東北'),
+  // 関東
+  A('HND', '羽田', '東京', 35.553, 139.781, 1931, [[1931, 2550], [1971, 3000]], 17.0, 1.1, '関東', { cityGroup: 'TYO' }),
+  A('NRT', '成田', '東京', 35.765, 140.386, 1978, [[1978, 4000]], 17.0, 1.1, '関東', { cityGroup: 'TYO' }),
+  A('IBR', '茨城', '水戸', 36.181, 140.415, 2010, [[2010, 2700]], 1.0, 0.9, '関東'),
+  A('OIM', '大島', '伊豆大島', 34.782, 139.360, 1964, [[1964, 1200], [2002, 1800]], 0.02, 3.0, '関東', { island: true }),
+  A('HAC', '八丈島', '八丈島', 33.115, 139.786, 1955, [[1955, 1200], [1974, 1800], [1999, 2000]], 0.02, 3.0, '関東', { island: true }),
   // 中部・北陸
-  { code: 'NGO', name: '名古屋（小牧）', city: '名古屋', lat: 35.255, lon: 136.924, openYear: 1952, runwayM: 2740, popM: 5.0, tourism: 0.9, region: '中部' },
-  { code: 'KMQ', name: '小松', city: '金沢', lat: 36.394, lon: 136.408, openYear: 1958, runwayM: 2700, popM: 1.0, tourism: 1.1, region: '中部' },
-  { code: 'TOY', name: '富山', city: '富山', lat: 36.648, lon: 137.188, openYear: 1963, runwayM: 1200, popM: 0.9, tourism: 0.9, region: '中部' },
+  A('KIJ', '新潟', '新潟', 37.956, 139.121, 1958, [[1958, 1300], [1972, 1900], [1996, 2500]], 1.3, 1.0, '中部'),
+  A('NKM', '名古屋（小牧）', '名古屋', 35.255, 136.924, 1952, [[1952, 2740]], 5.0, 0.9, '中部', { closeYear: 2005, cityGroup: 'NGO' }),
+  A('NGO', '中部', '名古屋', 34.858, 136.805, 2005, [[2005, 3500]], 5.0, 0.95, '中部', { cityGroup: 'NGO' }),
+  A('FSZ', '静岡', '静岡', 34.796, 138.189, 2009, [[2009, 2500]], 1.5, 1.0, '中部'),
+  A('KMQ', '小松', '金沢', 36.394, 136.408, 1958, [[1958, 2700]], 1.0, 1.1, '中部'),
+  A('TOY', '富山', '富山', 36.648, 137.188, 1963, [[1963, 1200], [1984, 2000]], 0.9, 0.9, '中部'),
+  A('NTQ', '能登', '輪島', 37.293, 136.962, 2003, [[2003, 2000]], 0.1, 1.3, '中部'),
   // 近畿
-  { code: 'ITM', name: '伊丹', city: '大阪', lat: 34.785, lon: 135.438, openYear: 1959, runwayM: 1830, popM: 10.0, tourism: 1.1, region: '近畿' },
-  { code: 'SHM', name: '南紀白浜', city: '白浜', lat: 33.662, lon: 135.364, openYear: 1968, runwayM: 1200, popM: 0.2, tourism: 2.5, region: '近畿' },
+  A('ITM', '伊丹', '大阪', 34.785, 135.438, 1959, [[1959, 1830], [1970, 3000]], 10.0, 1.1, '近畿', { cityGroup: 'OSA' }),
+  A('KIX', '関西', '大阪', 34.434, 135.244, 1994, [[1994, 3500]], 10.0, 1.1, '近畿', { cityGroup: 'OSA' }),
+  A('UKB', '神戸', '神戸', 34.632, 135.224, 2006, [[2006, 2500]], 2.0, 1.0, '近畿', { cityGroup: 'OSA' }),
+  A('SHM', '南紀白浜', '白浜', 33.662, 135.364, 1968, [[1968, 1200], [1996, 2000]], 0.2, 2.5, '近畿'),
   // 中国・四国
-  { code: 'OKJ', name: '岡山', city: '岡山', lat: 34.757, lon: 133.855, openYear: 1962, runwayM: 1200, popM: 1.2, tourism: 0.9, region: '中国' },
-  { code: 'HIJ', name: '広島', city: '広島', lat: 34.396, lon: 132.475, openYear: 1961, runwayM: 1200, popM: 1.6, tourism: 1.0, region: '中国' },
-  { code: 'YGJ', name: '米子', city: '米子・松江', lat: 35.492, lon: 133.236, openYear: 1958, runwayM: 1500, popM: 0.6, tourism: 1.1, region: '中国' },
-  { code: 'IZO', name: '出雲', city: '出雲', lat: 35.414, lon: 132.890, openYear: 1966, runwayM: 1200, popM: 0.3, tourism: 1.4, region: '中国' },
-  { code: 'UBJ', name: '山口宇部', city: '宇部・山口', lat: 33.930, lon: 131.279, openYear: 1966, runwayM: 1200, popM: 0.7, tourism: 0.9, region: '中国' },
-  { code: 'TAK', name: '高松', city: '高松', lat: 34.214, lon: 134.016, openYear: 1958, runwayM: 1200, popM: 0.9, tourism: 1.0, region: '四国' },
-  { code: 'TKS', name: '徳島', city: '徳島', lat: 34.133, lon: 134.607, openYear: 1962, runwayM: 1500, popM: 0.8, tourism: 1.0, region: '四国' },
-  { code: 'MYJ', name: '松山', city: '松山', lat: 33.827, lon: 132.700, openYear: 1956, runwayM: 1200, popM: 1.0, tourism: 1.2, region: '四国' },
-  { code: 'KCZ', name: '高知', city: '高知', lat: 33.546, lon: 133.669, openYear: 1954, runwayM: 1200, popM: 0.8, tourism: 1.2, region: '四国' },
+  A('TTJ', '鳥取', '鳥取', 35.530, 134.167, 1967, [[1967, 1200], [1980, 1800], [2000, 2000]], 0.4, 1.0, '中国'),
+  A('OKJ', '岡山', '岡山', 34.757, 133.855, 1962, [[1962, 1200], [1988, 2000], [2001, 3000]], 1.2, 0.9, '中国'),
+  A('HIJ', '広島', '広島', 34.436, 132.919, 1961, [[1961, 1200], [1972, 1800], [1993, 3000]], 1.6, 1.0, '中国'),
+  A('YGJ', '米子', '米子・松江', 35.492, 133.236, 1958, [[1958, 1500], [1973, 2000], [2008, 2500]], 0.6, 1.1, '中国'),
+  A('IZO', '出雲', '出雲', 35.414, 132.890, 1966, [[1966, 1200], [1991, 2000]], 0.3, 1.4, '中国'),
+  A('IWJ', '萩・石見', '益田', 34.676, 131.790, 1993, [[1993, 2000]], 0.15, 1.1, '中国'),
+  A('UBJ', '山口宇部', '宇部・山口', 33.930, 131.279, 1966, [[1966, 1200], [1980, 2000], [2001, 2500]], 0.7, 0.9, '中国'),
+  A('TAK', '高松', '高松', 34.214, 134.016, 1958, [[1958, 1200], [1989, 2500]], 0.9, 1.0, '四国'),
+  A('TKS', '徳島', '徳島', 34.133, 134.607, 1962, [[1962, 1500], [1979, 2000], [2000, 2500]], 0.8, 1.0, '四国'),
+  A('MYJ', '松山', '松山', 33.827, 132.700, 1956, [[1956, 1200], [1972, 2000], [1991, 2500]], 1.0, 1.2, '四国'),
+  A('KCZ', '高知', '高知', 33.546, 133.669, 1954, [[1954, 1200], [1984, 2000], [2004, 2500]], 0.8, 1.2, '四国'),
   // 九州
-  { code: 'FUK', name: '福岡（板付）', city: '福岡', lat: 33.585, lon: 130.451, openYear: 1951, runwayM: 2800, popM: 3.0, tourism: 1.0, region: '九州' },
-  { code: 'KKJ', name: '北九州', city: '北九州', lat: 33.846, lon: 131.035, openYear: 1959, runwayM: 1600, popM: 1.2, tourism: 0.8, region: '九州' },
-  { code: 'NGS', name: '長崎（大村）', city: '長崎', lat: 32.917, lon: 129.914, openYear: 1955, runwayM: 1200, popM: 1.2, tourism: 1.5, region: '九州' },
-  { code: 'KMJ', name: '熊本', city: '熊本', lat: 32.837, lon: 130.855, openYear: 1960, runwayM: 1200, popM: 1.1, tourism: 1.1, region: '九州' },
-  { code: 'OIT', name: '大分', city: '大分・別府', lat: 33.479, lon: 131.737, openYear: 1957, runwayM: 1100, popM: 0.8, tourism: 1.6, region: '九州' },
-  { code: 'KMI', name: '宮崎', city: '宮崎', lat: 31.877, lon: 131.449, openYear: 1954, runwayM: 1200, popM: 0.7, tourism: 1.8, region: '九州' },
-  { code: 'KOJ', name: '鹿児島', city: '鹿児島', lat: 31.803, lon: 130.719, openYear: 1957, runwayM: 1100, popM: 1.2, tourism: 1.3, region: '九州' },
-  { code: 'ASJ', name: '奄美', city: '奄美大島', lat: 28.431, lon: 129.713, openYear: 1964, runwayM: 1200, popM: 0.15, tourism: 2.0, region: '九州' },
+  A('FUK', '福岡', '福岡', 33.585, 130.451, 1951, [[1951, 2800]], 3.0, 1.0, '九州'),
+  A('KKJ', '北九州', '北九州', 33.846, 131.035, 1959, [[1959, 1600], [2006, 2500]], 1.2, 0.8, '九州'),
+  A('HSG', '佐賀', '佐賀', 33.150, 130.302, 1998, [[1998, 2000], [2002, 2500]], 0.8, 0.9, '九州'),
+  A('NGS', '長崎', '長崎', 32.917, 129.914, 1955, [[1955, 1200], [1975, 3000]], 1.2, 1.5, '九州'),
+  A('TSJ', '対馬', '対馬', 34.285, 129.331, 1975, [[1975, 1900]], 0.04, 1.4, '九州', { island: true }),
+  A('FUJ', '五島福江', '五島', 32.666, 128.833, 1963, [[1963, 1200], [1988, 2000]], 0.06, 1.6, '九州', { island: true }),
+  A('KMJ', '熊本', '熊本', 32.837, 130.855, 1960, [[1960, 1200], [1971, 2500], [1980, 3000]], 1.1, 1.1, '九州'),
+  A('OIT', '大分', '大分・別府', 33.479, 131.737, 1957, [[1957, 1100], [1971, 2500], [1988, 3000]], 0.8, 1.6, '九州'),
+  A('KMI', '宮崎', '宮崎', 31.877, 131.449, 1954, [[1954, 1200], [1970, 1800], [1985, 2500]], 0.7, 1.8, '九州'),
+  A('KOJ', '鹿児島', '鹿児島', 31.803, 130.719, 1957, [[1957, 1100], [1972, 3000]], 1.2, 1.3, '九州'),
+  A('KUM', '屋久島', '屋久島', 30.386, 130.659, 1965, [[1965, 1500]], 0.01, 2.5, '九州', { island: true }),
+  A('ASJ', '奄美', '奄美大島', 28.431, 129.713, 1964, [[1964, 1200], [1988, 2000]], 0.15, 2.0, '九州', { island: true }),
   // 沖縄（1972年の本土復帰で国内線化）
-  { code: 'OKA', name: '那覇', city: '那覇', lat: 26.196, lon: 127.646, openYear: 1972, runwayM: 3000, popM: 1.0, tourism: 2.2, region: '沖縄' },
-  { code: 'ISG', name: '石垣', city: '石垣', lat: 24.345, lon: 124.187, openYear: 1972, runwayM: 1500, popM: 0.05, tourism: 2.8, region: '沖縄' },
-  { code: 'MMY', name: '宮古', city: '宮古島', lat: 24.783, lon: 125.295, openYear: 1972, runwayM: 1800, popM: 0.06, tourism: 2.5, region: '沖縄' },
+  A('OKA', '那覇', '那覇', 26.196, 127.646, 1972, [[1972, 3000]], 1.0, 2.2, '沖縄', { island: true }),
+  A('UEO', '久米島', '久米島', 26.364, 126.714, 1972, [[1972, 1200], [1997, 2000]], 0.01, 2.5, '沖縄', { island: true }),
+  A('MMY', '宮古', '宮古島', 24.783, 125.295, 1972, [[1972, 1500], [1983, 2000]], 0.06, 2.5, '沖縄', { island: true }),
+  A('ISG', '石垣（新石垣）', '石垣', 24.345, 124.187, 1972, [[1972, 1500], [2013, 2000]], 0.05, 2.8, '沖縄', { island: true }),
+  A('OGN', '与那国', '与那国', 24.467, 122.978, 1972, [[1972, 1200], [2007, 2000]], 0.002, 2.5, '沖縄', { island: true }),
 ];
 
 export const AIRPORT_BY_CODE: Record<string, Airport> = Object.fromEntries(
   AIRPORTS.map((a) => [a.code, a]),
 );
 
-export const isAirportOpen = (a: Airport, year: number) => year >= a.openYear;
+export const isAirportOpen = (a: Airport, year: number) => year >= a.openYear && (a.closeYear === undefined || year < a.closeYear);
+
+export function runwayAt(a: Airport, year: number): number {
+  let m = a.runways[0][1];
+  for (const [y, len] of a.runways) if (year >= y) m = len;
+  return m;
+}

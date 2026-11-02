@@ -13,7 +13,7 @@ function run(label: string, from: string, to: string, typeId: string, n = 1, far
   if (typeId === 'dc3') { s = { ...s, year: 1946 }; for (let i = 0; i < n; i++) s = must(orderNew(s, typeId, 'buy')); s = { ...s, year: startYear }; }
   else for (let i = 0; i < n; i++) s = must(orderNew(s, typeId, 'operating', 8));
   s = { ...s, planes: s.planes.map((p) => ({ ...p, status: 'active' as const, readyYM: 0, builtYear: startYear, lease: p.lease && { ...p.lease, startYM: 0 } })) };
-  s = must(openRoute(s, from, to));
+  s = must(openRoute(s, from, to, { skipLicense: true }));
   s = must(setRoute(s, s.routes[0].id, { targetWeekly: weekly, fareYen: s.routes[0].fareYen * fareMul }));
   const f = routeMarket(s, s.routes[0]);
   const wk = scheduledWeekly(s, s.routes[0].id);

@@ -5,12 +5,12 @@ import { clearAutosave, downloadSave, loadAutosave, parseSave, writeAutosave } f
 import { routeDistance } from '../engine/model';
 import type { GameState } from '../engine/types';
 import { MapView } from './MapView';
-import { FinancePanel, FleetPanel, MarketPanel, NewsPanel, RoutesPanel, StaffPanel } from './panels';
+import { FinancePanel, FleetPanel, MarketPanel, NewsPanel, RivalsPanel, RoutesPanel, StaffPanel } from './panels';
 import { SchedulePanel } from './SchedulePanel';
 
-type Tab = 'routes' | 'schedule' | 'fleet' | 'market' | 'staff' | 'finance' | 'news';
+type Tab = 'routes' | 'schedule' | 'fleet' | 'market' | 'staff' | 'finance' | 'rivals' | 'news';
 const TABS: [Tab, string][] = [
-  ['routes', '路線'], ['schedule', 'ダイヤ'], ['fleet', '機材'], ['market', '機材市場'], ['staff', '人員・整備'], ['finance', '財務'], ['news', 'ニュース'],
+  ['routes', '路線'], ['schedule', 'ダイヤ'], ['fleet', '機材'], ['market', '機材市場'], ['staff', '人員・整備'], ['finance', '財務'], ['rivals', 'ライバル・規制'], ['news', 'ニュース'],
 ];
 
 export function App() {
@@ -132,6 +132,7 @@ function Game({ state, setState }: { state: GameState; setState: (s: GameState |
             {tab === 'market' && <MarketPanel s={state} apply={apply} />}
             {tab === 'staff' && <StaffPanel s={state} apply={apply} />}
             {tab === 'finance' && <FinancePanel s={state} apply={apply} />}
+            {tab === 'rivals' && <RivalsPanel s={state} />}
             {tab === 'news' && <NewsPanel s={state} />}
           </div>
         </aside>

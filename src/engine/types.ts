@@ -172,6 +172,8 @@ export interface GameState {
   opsLevel: number;
   /** daily movements (departures + arrivals) we may use at slot-controlled airports */
   slots: Record<string, number>;
+  /** how hard rivals are fighting back on each airport pair (0..1) */
+  aiPressure?: Record<string, number>;
   usedMarket: UsedListing[];
   /** experienced pilots hired this month, per type (reset monthly) */
   hiresThisMonth?: Record<string, number>;

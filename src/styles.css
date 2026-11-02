@@ -112,3 +112,4 @@ label.inline { flex-direction: row; align-items: center; gap: 6px; }
 .day { background: #1a263f; color: var(--muted); padding: 1px 4px; font-size: 11px; border-radius: 3px; margin-right: 1px; }
 .day.on { background: var(--accent); color: #fff; }
 input[type=range] { width: 100%; }
+.rival-chip { display: inline-block; border: 1px solid var(--line); border-left-width: 4px; border-radius: 4px; padding: 1px 6px; margin: 2px 4px 2px 0; font-size: 12px; background: #0d1628; }

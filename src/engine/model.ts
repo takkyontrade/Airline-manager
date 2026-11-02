@@ -1,9 +1,10 @@
 // Pure game formulas: distances, block times, prices, demand, costs.
-import { AIRPORT_BY_CODE, type Airport } from '../data/airports';
+import { AIRPORT_BY_CODE, AIRPORTS, isAirportOpen, runwayAt, type Airport } from '../data/airports';
+import { DEMAND_EVENTS, RAIL_OPENINGS } from '../data/history';
 import { AIRCRAFT_BY_ID, type AircraftType } from '../data/aircraft';
 import { econ, SEASONALITY, yearFrac } from '../data/economy';
 
-export const ISLANDS = new Set(['OIM', 'HAC', 'ASJ', 'OKA', 'ISG', 'MMY']);
+export const ISLANDS = new Set(AIRPORTS.filter((a) => a.island).map((a) => a.code));
 
 export function distanceKm(a: Airport, b: Airport): number {
   const R = 6371;
@@ -40,14 +41,15 @@ export function maxWeeklyRoundTrips(t: AircraftType, km: number): number {
 
 export type RouteCheck = { ok: true } | { ok: false; reason: string };
 
-export function canFly(t: AircraftType, from: string, to: string): RouteCheck {
+export function canFly(t: AircraftType, from: string, to: string, year: number): RouteCheck {
   const a = AIRPORT_BY_CODE[from];
   const b = AIRPORT_BY_CODE[to];
   const km = distanceKm(a, b);
   if (km > t.rangeKm) return { ok: false, reason: `航続距離が足りません（${Math.round(km)}km / ${t.rangeKm}km）` };
   for (const ap of [a, b]) {
-    if (ap.runwayM < t.minRunwayM)
-      return { ok: false, reason: `${ap.name}の滑走路が短すぎます（${ap.runwayM}m / 必要${t.minRunwayM}m）` };
+    const rw = runwayAt(ap, year);
+    if (rw < t.minRunwayM)
+      return { ok: false, reason: `${ap.name}の滑走路が短すぎます（${rw}m / 必要${t.minRunwayM}m）` };
   }
   return { ok: true };
 }
@@ -74,18 +76,54 @@ export function referenceFare(km: number, year: number, month: number): number {
   return Math.round((base1960 * econ.jpCpi(t) * realFareIndex(t)) / 10) * 10;
 }
 
+/** Share of a city's traffic using this airport when the city has several */
+export function airportShare(code: string, year: number): number {
+  const a = AIRPORT_BY_CODE[code];
+  if (!a.cityGroup) return 1;
+  const open = AIRPORTS.filter((x) => x.cityGroup === a.cityGroup && isAirportOpen(x, year));
+  if (open.length <= 1) return 1;
+  const weight: Record<string, number> = { HND: 0.85, NRT: 0.15, ITM: 0.65, KIX: 0.28, UKB: 0.07 };
+  const total = open.reduce((n, x) => n + (weight[x.code] ?? 0.5), 0);
+  return (weight[code] ?? 0.5) / total;
+}
+
+/** Remaining air demand after high-speed rail lines opened */
+export function railFactor(a: string, b: string, year: number, month: number): number {
+  let f = 1;
+  const t = year * 12 + month;
+  const norm = (x: string) => (x === 'NRT' ? 'HND' : x === 'KIX' || x === 'UKB' ? 'ITM' : x === 'NGO' ? 'NKM' : x);
+  const A = norm(a), B = norm(b);
+  for (const r of RAIL_OPENINGS) {
+    if (t < r.year * 12 + r.month) continue;
+    for (const [x, y, share] of r.pairs) if ((x === A && y === B) || (x === B && y === A)) f = Math.min(f, share);
+  }
+  return f;
+}
+
+/** Temporary demand shocks or booms */
+export function eventFactor(a: string, b: string, year: number, month: number): number {
+  const t = year * 12 + month;
+  let f = 1;
+  for (const e of DEMAND_EVENTS) {
+    if (t < e.from[0] * 12 + e.from[1] || t > e.to[0] * 12 + e.to[1]) continue;
+    if (!e.airports || e.airports.includes(a) || e.airports.includes(b)) f *= e.multiplier;
+  }
+  return f;
+}
+
 /** Monthly one-direction market demand at reference fare */
 export function marketDemand(from: string, to: string, year: number, month: number): number {
   const a = AIRPORT_BY_CODE[from];
   const b = AIRPORT_BY_CODE[to];
   const km = distanceKm(a, b);
   const t = yearFrac(year, month);
-  const island = ISLANDS.has(a.code) || ISLANDS.has(b.code);
+  const island = !!(a.island || b.island);
   // Rail/ferry competition makes short routes unattractive, except to islands
   const distF = island ? 1 : Math.min(1, Math.max(0.12, (km / 800) ** 0.7));
   const tourF = Math.sqrt(a.tourism * b.tourism);
   const K = 1460;
-  return K * Math.sqrt(a.popM * b.popM) * distF * tourF * econ.airPropensity(t) * SEASONALITY[month - 1];
+  return K * Math.sqrt(a.popM * b.popM) * distF * tourF * econ.airPropensity(t) * SEASONALITY[month - 1]
+    * airportShare(from, year) * airportShare(to, year) * railFactor(from, to, year, month) * eventFactor(from, to, year, month);
 }
 
 // ---- prices -------------------------------------------------------------
@@ -178,35 +216,6 @@ export const maintAgeFactor = (ageYears: number) => 1 + 0.025 * ageYears;
 export function overheadMonthly(planes: number, year: number, month: number): number {
   const c = econ.jpCpi(yearFrac(year, month));
   return (2_000_000 + 400_000 * planes) * c;
-}
-
-// ---- incumbent competitor (placeholder until AI airlines in stage 4) ----
-
-export function incumbentSeats(year: number): number {
-  if (year < 1965) return 60;
-  if (year < 1970) return 100;
-  if (year < 1975) return 140;
-  if (year < 1985) return 280;
-  return 300;
-}
-
-export function incumbentComfort(year: number): number {
-  if (year < 1964) return 0.8;
-  if (year < 1970) return 0.95;
-  return 1.05;
-}
-
-/** Weekly round trips the established airlines fly on a route (0 if none) */
-export function incumbentWeeklyFreq(from: string, to: string, year: number, month: number): number {
-  const a = AIRPORT_BY_CODE[from];
-  const b = AIRPORT_BY_CODE[to];
-  const big = (x: Airport) => x.popM >= 1.4;
-  const trunk = (big(a) && big(b)) || (Math.max(a.popM, b.popM) >= 5 && Math.min(a.popM, b.popM) >= 0.8);
-  if (!trunk) return 0;
-  const m = marketDemand(from, to, year, 6); // plan on an average month
-  void month;
-  const freq = (m * 0.75) / (4.33 * incumbentSeats(year) * 0.7);
-  return Math.max(1, Math.round(freq));
 }
 
 export { AIRCRAFT_BY_ID };

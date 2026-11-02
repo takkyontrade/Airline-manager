@@ -25,7 +25,7 @@ function setup() {
   let id: string;
   [s, id] = withListing(s, 'dc3');
   s = must(acquireUsed(s, id, 'buy'));
-  s = must(openRoute(s, 'HND', 'ITM'));
+  s = must(openRoute(s, 'HND', 'ITM', { skipLicense: true }));
   return s;
 }
 
@@ -41,12 +41,29 @@ describe('model', () => {
     expect(marketDemand('HND', 'CTS', 1990, 6)).toBeGreaterThan(marketDemand('HND', 'CTS', 1960, 6) * 10);
   });
   test('jets cannot use a short 1960 runway', () => {
-    expect(canFly(AIRCRAFT_BY_ID['dc8'], 'HND', 'KCZ').ok).toBe(false);
-    expect(canFly(AIRCRAFT_BY_ID['dc3'], 'HND', 'KCZ').ok).toBe(true);
+    expect(canFly(AIRCRAFT_BY_ID['dc8'], 'HND', 'KCZ', 1960).ok).toBe(false);
+    expect(canFly(AIRCRAFT_BY_ID['dc3'], 'HND', 'KCZ', 1960).ok).toBe(true);
   });
 });
 
 describe('routes and months', () => {
+  test('in 1960 a newcomer needs a track record to enter routes rivals already fly', () => {
+    const s = newGame('x', 'HND', 1);
+    expect(openRoute(s, 'HND', 'ITM').ok).toBe(false);
+    expect(openRoute(s, 'HND', 'HAC').ok).toBe(true);
+    expect(openRoute({ ...s, year: 2005 }, 'HND', 'ITM').ok).toBe(true);
+  });
+  test('fares are regulated before 1996', () => {
+    let s = setup();
+    s = must(setRoute(s, s.routes[0].id, { fareYen: 1 }));
+    expect(s.routes[0].fareYen).toBeGreaterThan(5000);
+  });
+  test('the Tokaido Shinkansen cuts Tokyo-Osaka air demand', () => {
+    expect(marketDemand('HND', 'ITM', 1965, 6) / marketDemand('HND', 'ITM', 1964, 6)).toBeLessThan(0.75);
+  });
+  test('the old Nagoya airport closes when Chubu opens', () => {
+    expect(openRoute({ ...newGame('x', 'HND', 1), year: 2006 }, 'HND', 'NKM').ok).toBe(false);
+  });
   test('cannot open a route to an airport that is not open yet', () => {
     expect(openRoute(newGame('x', 'HND', 1), 'HND', 'OKA').ok).toBe(false);
   });
@@ -66,7 +83,7 @@ describe('routes and months', () => {
   });
   test('one plane is shared fairly between two routes', () => {
     let s = setup();
-    s = must(openRoute(s, 'HND', 'SDJ'));
+    s = must(openRoute(s, 'HND', 'SDJ', { skipLicense: true }));
     s = must(setRoute(s, s.routes[0].id, { targetWeekly: 140 }));
     expect(scheduledWeekly(s, s.routes[1].id)).toBe(7);
   });
