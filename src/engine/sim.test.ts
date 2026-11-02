@@ -473,3 +473,14 @@ describe('plane base', () => {
     expect(s.planes[0].baseFixed).toBe(false);
   });
 });
+
+describe('trunk licence', () => {
+  test('uses the reputation as shown on screen (rounded)', () => {
+    let s = newGame('t', 'KMQ', 1);
+    for (let i = 0; i < 3; i++) { let id: string; [s, id] = withListing(s, 'dc3', 1); s = must(acquireUsed(s, id, 'buy')); }
+    expect(openRoute({ ...s, reputation: 49.6 }, 'HND', 'ITM').ok).toBe(true);
+    const r = openRoute({ ...s, reputation: 47 }, 'HND', 'ITM');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('今は評判47');
+  });
+});

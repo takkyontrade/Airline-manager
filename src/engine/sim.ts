@@ -135,8 +135,8 @@ export function routeApproval(s: GameState, from: string, to: string): { ok: boo
     if (s.year < 1986) return { ok: false, reason: 'この時代、日本の国際線は日本国際航空だけが飛べます（1986年から他社も参入できます）' };
     const fleet = s.planes.filter((p) => p.status !== 'onOrder').length;
     const need = s.year < 2000 ? { rep: 55, fleet: 4 } : { rep: 45, fleet: 2 };
-    if (s.reputation >= need.rep && fleet >= need.fleet) return { ok: true, reason: '国際線の運航が認められました' };
-    return { ok: false, reason: `国際線の開設には評判${need.rep}以上・機材${need.fleet}機以上の実績が必要です` };
+    if (Math.round(s.reputation) >= need.rep && fleet >= need.fleet) return { ok: true, reason: '国際線の運航が認められました' };
+    return { ok: false, reason: `国際線の開設には評判${need.rep}以上・機材${need.fleet}機以上の実績が必要です（今は評判${Math.round(s.reputation)}・就航可能な機材${fleet}機。発注中の機体は数えません）` };
   }
   const lic = routeLicensing(s.year);
   if (!lic.required) return { ok: true, reason: lic.label };
@@ -145,8 +145,8 @@ export function routeApproval(s: GameState, from: string, to: string): { ok: boo
   if (!isTrunk(from, to)) return { ok: true, reason: 'ローカル線なので免許が下りました' };
   const fleet = s.planes.filter((p) => p.status !== 'onOrder').length;
   const need = s.year < 1986 ? { rep: 50, fleet: 3 } : { rep: 45, fleet: 2 };
-  if (s.reputation >= need.rep && fleet >= need.fleet) return { ok: true, reason: '実績が認められ、免許が下りました' };
-  return { ok: false, reason: `${lic.label}。幹線への参入には評判${need.rep}以上・機材${need.fleet}機以上の実績が必要です` };
+  if (Math.round(s.reputation) >= need.rep && fleet >= need.fleet) return { ok: true, reason: '実績が認められ、免許が下りました' };
+  return { ok: false, reason: `${lic.label}。幹線への参入には評判${need.rep}以上・機材${need.fleet}機以上の実績が必要です（今は評判${Math.round(s.reputation)}・就航可能な機材${fleet}機。発注中の機体は数えません）` };
 }
 
 export const planesOnRoute = (s: GameState, routeId: string) => s.planes.filter((p) => p.schedule.some((l) => l.routeId === routeId));
