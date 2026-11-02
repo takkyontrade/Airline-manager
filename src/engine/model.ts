@@ -1,5 +1,5 @@
 // Pure game formulas: distances, block times, prices, demand, costs.
-import { AIRPORT_BY_CODE, AIRPORTS, isAirportOpen, runwayAt, type Airport } from '../data/airports';
+import { AIRPORT_BY_CODE, AIRPORTS, isAirportOpen, isForeign, runwayAt, type Airport } from '../data/airports';
 import { DEMAND_EVENTS, RAIL_OPENINGS } from '../data/history';
 import { AIRCRAFT_BY_ID, type AircraftType } from '../data/aircraft';
 import { econ, SEASONALITY, yearFrac } from '../data/economy';
@@ -39,6 +39,26 @@ export function maxWeeklyRoundTrips(t: AircraftType, km: number): number {
   return Math.max(0, Math.floor(WEEKLY_OPS_HOURS / rt));
 }
 
+/** Number of engines, from the silhouette */
+export function engineCount(t: AircraftType): number {
+  if (t.silhouette === 'quadJet' || t.silhouette === 'quadProp' || t.silhouette === 'jumbo') return 4;
+  if (t.silhouette === 'triJet' || t.silhouette === 'wideTri') return 3;
+  return 2;
+}
+
+/** Longest allowed distance (in minutes on one engine) from a diversion airport */
+export function etopsMinutes(t: AircraftType, year: number): number {
+  if (engineCount(t) > 2) return 999;
+  if (year < 1985) return 60;
+  const id = t.id;
+  if (/^(b787|a350)/.test(id)) return 330;
+  if (/^(b777|a330)/.test(id)) return 180;
+  if (/^b767/.test(id)) return year >= 1989 ? 180 : 120;
+  if (id === 'a300-600r') return year >= 1986 ? 120 : 60;
+  if (/^(b737-[78]|a32)/.test(id)) return year >= 1990 ? 120 : 60;
+  return 60;
+}
+
 export type RouteCheck = { ok: true } | { ok: false; reason: string };
 
 export function canFly(t: AircraftType, from: string, to: string, year: number): RouteCheck {
@@ -46,6 +66,11 @@ export function canFly(t: AircraftType, from: string, to: string, year: number):
   const b = AIRPORT_BY_CODE[to];
   const km = distanceKm(a, b);
   if (km > t.rangeKm) return { ok: false, reason: `航続距離が足りません（${Math.round(km)}km / ${t.rangeKm}km）` };
+  const need = Math.max(a.etops ?? 0, b.etops ?? 0);
+  if (need > 0) {
+    const have = etopsMinutes(t, year);
+    if (have < need) return { ok: false, reason: `洋上飛行の制限（ETOPS）：${t.name}は${year}年時点で${have >= 999 ? '' : `${have}分`}までしか認められていません（必要${need}分）` };
+  }
   for (const ap of [a, b]) {
     const rw = runwayAt(ap, year);
     if (rw < t.minRunwayM)
@@ -113,6 +138,7 @@ export function eventFactor(a: string, b: string, year: number, month: number): 
 
 /** Monthly one-direction market demand at reference fare */
 export function marketDemand(from: string, to: string, year: number, month: number): number {
+  if (isForeign(from) || isForeign(to)) return intlDemand(from, to, year, month);
   const a = AIRPORT_BY_CODE[from];
   const b = AIRPORT_BY_CODE[to];
   const km = distanceKm(a, b);
@@ -121,9 +147,79 @@ export function marketDemand(from: string, to: string, year: number, month: numb
   // Rail/ferry competition makes short routes unattractive, except to islands
   const distF = island ? 1 : Math.min(1, Math.max(0.12, (km / 800) ** 0.7));
   const tourF = Math.sqrt(a.tourism * b.tourism);
-  const K = 1460;
-  return K * Math.sqrt(a.popM * b.popM) * distF * tourF * econ.airPropensity(t) * SEASONALITY[month - 1]
+  // gravity: demand grows with the product of the two catchments (small towns
+  // generate little traffic between themselves). Islands draw visitors beyond
+  // their own population.
+  const pop = (x: Airport) => (x.island ? Math.max(x.popM, 0.04 * x.tourism) : x.popM);
+  const K = 204;
+  return K * pop(a) * pop(b) * distF * tourF * econ.airPropensity(t) * SEASONALITY[month - 1]
     * airportShare(from, year) * airportShare(to, year) * railFactor(from, to, year, month) * eventFactor(from, to, year, month);
+}
+
+// ---- international -------------------------------------------------------
+
+const ASIA = new Set(['東アジア', '東南アジア']);
+
+/** Share of a Japanese city's international traffic using this airport */
+export function intlGatewayShare(code: string, year: number): number {
+  switch (code) {
+    case 'HND': return year < 1978 ? 1 : year < 2010 ? 0 : year < 2014 ? 0.2 : year < 2020 ? 0.35 : 0.5;
+    case 'NRT': return year < 2010 ? 1 : year < 2014 ? 0.8 : year < 2020 ? 0.65 : 0.5;
+    case 'ITM': return year < 1994 ? 1 : 0;
+    case 'UKB': return 0;
+    default: return 1;
+  }
+}
+
+/** Population of the city an airport serves (largest among airports sharing a city) */
+function cityPop(code: string): number {
+  const a = AIRPORT_BY_CODE[code];
+  if (!a.cityGroup) return a.popM;
+  return Math.max(...AIRPORTS.filter((x) => x.cityGroup === a.cityGroup).map((x) => x.popM));
+}
+
+/** Share of a foreign city's traffic using this airport */
+function foreignShare(code: string, year: number): number {
+  const a = AIRPORT_BY_CODE[code];
+  if (!a.cityGroup) return 1;
+  const open = AIRPORTS.filter((x) => x.cityGroup === a.cityGroup && isAirportOpen(x, year));
+  const total = open.reduce((n, x) => n + (x.intlWeight ?? 1), 0);
+  return total ? (a.intlWeight ?? 1) / total : 0;
+}
+
+/**
+ * Monthly one-direction demand between a Japanese and a foreign airport.
+ * `ignoreGateway` gives the demand of the whole Japanese city regardless of
+ * whether this airport handles international flights (used for connections).
+ */
+export function intlDemand(from: string, to: string, year: number, month: number, ignoreGateway = false): number {
+  const jp = isForeign(from) ? to : from;
+  const fx = isForeign(from) ? from : to;
+  if (isForeign(jp)) return 0; // foreign-foreign pairs are not part of the game
+  const f = AIRPORT_BY_CODE[fx];
+  if (!isAirportOpen(f, year)) return 0;
+  const t = yearFrac(year, month);
+  const idx = ASIA.has(f.region) ? econ.intlAsia(t) : econ.intlLong(t);
+  // weights of airports sharing a city add up to the city's total; open airports split it
+  const groupTotal = f.cityGroup ? AIRPORTS.filter((x) => x.cityGroup === f.cityGroup).reduce((n, x) => n + (x.intlWeight ?? 0), 0) : f.intlWeight ?? 0;
+  const jpScale = (cityPop(jp) / 17) ** 0.85;
+  const gate = ignoreGateway ? 1 : intlGatewayShare(jp, year);
+  return groupTotal * 1000 * jpScale * idx * SEASONALITY[month - 1] * gate * foreignShare(fx, year) * eventFactor(jp, fx, year, month);
+}
+
+/** Reference one-way international fare in yen (set in dollars, so it moves with the exchange rate) */
+export function intlReferenceFare(km: number, year: number, month: number): number {
+  const t = yearFrac(year, month);
+  const usd = (90 + 0.045 * km) * (econ.usCpi(t) / econ.usCpi(1960)) * econ.intlRealFare(t);
+  return Math.round((usd * econ.jpyPerUsd(t)) / 100) * 100;
+}
+
+export const isIntlRoute = (from: string, to: string) => isForeign(from) || isForeign(to);
+
+/** Reference fare for any route */
+export function routeReferenceFare(from: string, to: string, year: number, month: number): number {
+  const km = routeDistance(from, to);
+  return isIntlRoute(from, to) ? intlReferenceFare(km, year, month) : referenceFare(km, year, month);
 }
 
 // ---- prices -------------------------------------------------------------
@@ -153,7 +249,7 @@ export interface FlightCost {
   airport: number;
 }
 
-export function flightCost(t: AircraftType, km: number, year: number, month: number): FlightCost {
+export function flightCost(t: AircraftType, km: number, year: number, month: number, intl = false): FlightCost {
   const tf = yearFrac(year, month);
   const bh = blockHours(t, km);
   const fx = econ.jpyPerUsd(tf);
@@ -162,7 +258,10 @@ export function flightCost(t: AircraftType, km: number, year: number, month: num
   return {
     fuel: bh * t.fuelKgH * fuelPerKgUsd * fuelPremium * fx,
     maintenance: bh * t.maintUsdH * econ.usCpi(tf) * fx,
-    airport: (t.seats * 250 + 15000) * econ.jpCpi(tf), // landing, navigation, handling
+    airport: intl
+      // half the landings are in Japan (expensive) and half abroad (billed in dollars)
+      ? 0.5 * (t.seats * 400 + 30000) * econ.jpCpi(tf) + 0.5 * (t.seats * 1.5 + 500) * (econ.usCpi(tf) / econ.usCpi(1960)) * fx
+        : (t.seats * 200 + 8000) * econ.jpCpi(tf), // landing, navigation, handling
   };
 }
 
@@ -215,7 +314,7 @@ export const maintAgeFactor = (ageYears: number) => 1 + 0.025 * ageYears;
 
 export function overheadMonthly(planes: number, year: number, month: number): number {
   const c = econ.jpCpi(yearFrac(year, month));
-  return (2_000_000 + 400_000 * planes) * c;
+  return (1_200_000 + 400_000 * planes) * c;
 }
 
 export { AIRCRAFT_BY_ID };

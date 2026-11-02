@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { AIRPORT_BY_CODE } from '../data/airports';
 import { flyablePlanes, formatYen, planeType, setOps, toggleCrewBase, type Result } from '../engine/sim';
 import {
-  airportHours, autoSchedule, DAILY, DAY_NAMES, dayCount, hhmm, legViews, OPS_LEVELS, setPlaneBase,
+  airportHours, autoSchedule, DAILY, DAY_NAMES, dayCount, dayTag, hhmm, legViews, OPS_LEVELS, setPlaneBase,
   setPlaneLock, setPlaneSchedule, slotAirports, slotUsage, validateRotation, BASE_COST_MONTHLY,
 } from '../engine/schedule';
 import type { GameState, Leg, Plane } from '../engine/types';
@@ -12,7 +12,7 @@ type Apply = (r: Result) => void;
 const aptName = (c: string) => AIRPORT_BY_CODE[c]?.name ?? c;
 const START = 300; // timeline from 05:00
 const END = 1440;
-const pctX = (m: number) => `${((m - START) / (END - START)) * 100}%`;
+const pctX = (m: number, end = END) => `${((m - START) / (end - START)) * 100}%`;
 
 const COLORS = ['#4f9bff', '#46c98b', '#e6c35c', '#ff8a65', '#b388ff', '#4dd0e1', '#f06292', '#aed581'];
 
@@ -79,24 +79,28 @@ export function SchedulePanel({ s, apply }: { s: GameState; apply: Apply }) {
       {planes.map((p) => {
         const views = legViews(s, p);
         const errs = validateRotation(s, p);
+        const multi = p.cycleDays !== undefined;
+        const end = multi ? Math.max(END, ...views.map((v) => v.arr + 60)) : END;
         return (
           <div key={p.id} className="tl-row">
             <div className="tl-label">
               <button className="link" onClick={() => setEditing(editing === p.id ? null : p.id)}>
                 {planeType(p).name} {p.regNo}
               </button>
-              <span className="muted small-text"> {aptName(p.base)}{p.locked ? ' 🔒' : ''}{!fly.has(p.id) ? ' ⚠運休' : ''}</span>
+              <span className="muted small-text"> {aptName(p.base)}{p.locked ? ' 🔒' : ''}{!fly.has(p.id) ? ' ⚠運休' : ''}{multi && `（日付をまたぐ長距離ダイヤ・${p.cycleDays}日で1往復）`}</span>
             </div>
             <div className="tl-bar">
               {views.map((v, i) => (
-                <div key={i} className="tl-leg" title={`${aptName(v.from)} ${hhmm(v.dep)} → ${aptName(v.to)} ${hhmm(v.arr)}`}
-                  style={{ left: pctX(v.dep), width: `calc(${pctX(v.arr)} - ${pctX(v.dep)})`, background: routeColor(v.route.id), opacity: v.leg.days === DAILY ? 1 : 0.6 }}>
+                <div key={i} className="tl-leg" title={`${aptName(v.from)} ${dayTag(v.dep)}${hhmm(v.dep)} → ${aptName(v.to)} ${dayTag(v.arr)}${hhmm(v.arr)}（日本時間）`}
+                  style={{ left: pctX(v.dep, end), width: `calc(${pctX(v.arr, end)} - ${pctX(v.dep, end)})`, background: routeColor(v.route.id), opacity: v.leg.days === DAILY ? 1 : 0.6 }}>
                   {v.to}
                 </div>
               ))}
             </div>
             {errs.length > 0 && <div className="small-text neg">{errs[0]}</div>}
-            {editing === p.id && <LegEditor s={s} p={p} apply={apply} />}
+            {editing === p.id && (multi
+              ? <p className="small-text muted card">長距離便の機体は自動でダイヤを組みます（手での編集は今後対応予定）。時刻はすべて日本時間です。</p>
+              : <LegEditor s={s} p={p} apply={apply} />)}
           </div>
         );
       })}

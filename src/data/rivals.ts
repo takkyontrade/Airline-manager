@@ -2,7 +2,7 @@
 // (flag carrier, domestic major, local carrier, new entrant, LCC) but names,
 // details and behaviour are invented for the game.
 
-export type RivalRole = 'flag' | 'major' | 'local' | 'okinawa' | 'entrant' | 'lcc';
+export type RivalRole = 'flag' | 'major' | 'local' | 'okinawa' | 'entrant' | 'lcc' | 'foreign';
 
 export interface Rival {
   id: string;
@@ -14,6 +14,8 @@ export interface Rival {
   until?: number; // year it disappears (merger etc.)
   fareMul: number; // fares relative to the market reference
   comfortMul: number;
+  /** foreign airlines: home country (matches Airport.country) */
+  country?: string;
   /** entrants and LCCs only fly these pairs, each from a given year */
   routes?: [string, string, number][];
 }
@@ -47,6 +49,26 @@ export const RIVALS: Rival[] = [
     id: 'TBM', name: 'ツバメエア', short: 'TBM', color: '#ff9a3c', role: 'lcc', from: 2012, fareMul: 0.58, comfortMul: 0.85,
     routes: [['NRT', 'CTS', 2012], ['NRT', 'FUK', 2012], ['NRT', 'OKA', 2012], ['NRT', 'KIX', 2012], ['NRT', 'KMJ', 2014], ['NRT', 'KOJ', 2014], ['NRT', 'MYJ', 2014], ['NRT', 'TAK', 2014], ['NGO', 'CTS', 2012], ['NGO', 'FUK', 2012], ['KIX', 'CTS', 2013], ['KIX', 'OKA', 2013], ['NRT', 'SYO', 2022]],
   },
+  // 海外の航空会社（日本との路線を飛ぶ）
+  { id: 'HBK', name: 'ハンビッ航空', short: 'HBK', color: '#5aa0d0', role: 'foreign', country: '韓国', from: 1962, fareMul: 0.92, comfortMul: 1.0 },
+  { id: 'FMS', name: 'フォルモサ・スカイ', short: 'FMS', color: '#c06090', role: 'foreign', country: '台湾', from: 1960, fareMul: 0.92, comfortMul: 1.0 },
+  { id: 'HKX', name: '香江エアウェイズ', short: 'HKX', color: '#3fae9a', role: 'foreign', country: '香港', from: 1960, fareMul: 1.0, comfortMul: 1.1 },
+  { id: 'TQA', name: '天穹航空', short: 'TQA', color: '#d0503a', role: 'foreign', country: '中国', from: 1974, fareMul: 0.9, comfortMul: 0.95 },
+  { id: 'LZN', name: 'ルソン航空', short: 'LZN', color: '#3a60c0', role: 'foreign', country: 'フィリピン', from: 1960, fareMul: 0.9, comfortMul: 0.95 },
+  { id: 'SLT', name: 'シャム・ロータス航空', short: 'SLT', color: '#a060d0', role: 'foreign', country: 'タイ', from: 1960, fareMul: 0.95, comfortMul: 1.05 },
+  { id: 'MLN', name: 'マーライオン航空', short: 'MLN', color: '#e0a040', role: 'foreign', country: 'シンガポール', from: 1960, fareMul: 1.0, comfortMul: 1.15 },
+  { id: 'MLK', name: 'マラッカ航空', short: 'MLK', color: '#5070b0', role: 'foreign', country: 'マレーシア', from: 1965, fareMul: 0.92, comfortMul: 1.0 },
+  { id: 'IDN', name: 'ヌサンタラ航空', short: 'IDN', color: '#4a9a8a', role: 'foreign', country: 'インドネシア', from: 1962, fareMul: 0.92, comfortMul: 1.0 },
+  { id: 'MKG', name: 'メコン航空', short: 'MKG', color: '#40a0b0', role: 'foreign', country: 'ベトナム', from: 1994, fareMul: 0.9, comfortMul: 1.0 },
+  { id: 'LBP', name: 'リバティ・パシフィック航空', short: 'LBP', color: '#3050a0', role: 'foreign', country: 'アメリカ', from: 1960, fareMul: 1.0, comfortMul: 1.0 },
+  { id: 'MPL', name: 'メープル・エア', short: 'MPL', color: '#d04040', role: 'foreign', country: 'カナダ', from: 1960, fareMul: 0.98, comfortMul: 1.0 },
+  { id: 'SCX', name: 'サザンクロス航空', short: 'SCX', color: '#e05030', role: 'foreign', country: 'オーストラリア', from: 1960, fareMul: 1.0, comfortMul: 1.05 },
+  { id: 'BRC', name: 'ブリタニア・クラウン航空', short: 'BRC', color: '#304080', role: 'foreign', country: 'イギリス', from: 1960, fareMul: 1.05, comfortMul: 1.05 },
+  { id: 'LUM', name: 'エール・リュミエール', short: 'LUM', color: '#2040a0', role: 'foreign', country: 'フランス', from: 1960, fareMul: 1.05, comfortMul: 1.05 },
+  { id: 'NST', name: 'ノルトシュテルン航空', short: 'NST', color: '#e0b020', role: 'foreign', country: 'ドイツ', from: 1960, fareMul: 1.05, comfortMul: 1.05 },
+  { id: 'DWG', name: 'ダッチ・ウイング', short: 'DWG', color: '#30a0e0', role: 'foreign', country: 'オランダ', from: 1960, fareMul: 1.0, comfortMul: 1.0 },
+  { id: 'TVR', name: 'テヴェレ航空', short: 'TVR', color: '#30a050', role: 'foreign', country: 'イタリア', from: 1961, fareMul: 1.0, comfortMul: 1.0 },
+  { id: 'VST', name: 'アエロ・ボストーク', short: 'VST', color: '#b03030', role: 'foreign', country: 'ソ連・ロシア', from: 1967, fareMul: 0.8, comfortMul: 0.85 },
 ];
 
 export const RIVAL_BY_ID: Record<string, Rival> = Object.fromEntries(RIVALS.map((r) => [r.id, r]));

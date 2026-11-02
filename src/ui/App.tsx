@@ -132,7 +132,7 @@ function Game({ state, setState }: { state: GameState; setState: (s: GameState |
             {tab === 'market' && <MarketPanel s={state} apply={apply} />}
             {tab === 'staff' && <StaffPanel s={state} apply={apply} />}
             {tab === 'finance' && <FinancePanel s={state} apply={apply} />}
-            {tab === 'rivals' && <RivalsPanel s={state} />}
+            {tab === 'rivals' && <RivalsPanel s={state} apply={apply} />}
             {tab === 'news' && <NewsPanel s={state} />}
           </div>
         </aside>

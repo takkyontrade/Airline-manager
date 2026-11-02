@@ -1,6 +1,6 @@
 // Timetables: airport hours, slots, rotation validation, the auto-scheduler
 // and the delay simulation that produces on-time performance.
-import { AIRPORT_BY_CODE } from '../data/airports';
+import { AIRPORT_BY_CODE, isForeign } from '../data/airports';
 import { econ, yearFrac } from '../data/economy';
 import { blockHours, canFly, ISLANDS, routeDistance, turnaroundHours } from './model';
 import { planeType } from './fleet';
@@ -11,12 +11,17 @@ export const DAILY = 127;
 export const DAY_NAMES = ['月', '火', '水', '木', '金', '土', '日'];
 export const dayCount = (mask: number) => { let n = 0; for (let i = 0; i < 7; i++) if (mask & (1 << i)) n++; return n; };
 
+/** Weekly frequency of one leg of a plane's rotation */
+export const legsPerWeek = (p: Plane, leg: Leg) => ((p.cycleDays ?? 1) > 1 ? 7 / p.cycleDays! : dayCount(leg.days));
+/** Day offset label for multi-day rotations, e.g. "+1日" */
+export const dayTag = (m: number) => (m >= 1440 ? `+${Math.floor(m / 1440)}日` : '');
 export const hhmm = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(Math.round(m % 60)).padStart(2, '0')}`;
 
 // ---- airports: hours, congestion, slots ----------------------------------
 
 /** Operating hours [open, close] in minutes after midnight */
 export function airportHours(code: string, year: number): [number, number] {
+  if (isForeign(code)) return [0, 1440];
   if (code === 'HND') return year >= 2010 ? [0, 1440] : [360, 1380];
   if (code === 'ITM') return [420, 1260];
   if (code === 'KIX') return [0, 1440];
@@ -29,15 +34,26 @@ export function airportHours(code: string, year: number): [number, number] {
 
 /** Slot-controlled airports in a given year */
 export function slotAirports(year: number): string[] {
-  return year >= 1970 ? ['HND', 'ITM'] : ['HND'];
+  const out = ['HND'];
+  if (year >= 1970) out.push('ITM');
+  if (year >= 1978) out.push('NRT');
+  return out;
 }
 
-export const INITIAL_SLOTS: Record<string, number> = { HND: 12, ITM: 12 };
+export const INITIAL_SLOTS: Record<string, number> = { HND: 12, ITM: 12, NRT: 6 };
+
+/** Is a local time (minutes, any day) inside the airport's operating hours? */
+export function inHours(code: string, year: number, m: number): boolean {
+  const [open, close] = airportHours(code, year);
+  if (open === 0 && close >= 1440) return true;
+  const t = ((m % 1440) + 1440) % 1440;
+  return t >= open && t <= close;
+}
 
 /** Extra delay probability from congestion */
 function congestion(code: string, year: number): number {
   if (code === 'HND') return year < 2010 ? 0.06 : 0.04;
-  if (code === 'ITM' || code === 'FUK') return 0.03;
+  if (code === 'ITM' || code === 'FUK' || code === 'NRT') return 0.03;
   return 0;
 }
 
@@ -76,21 +92,30 @@ export function validateRotation(s: GameState, p: Plane, legs = p.schedule, base
   const errs: string[] = [];
   const plane = { ...p, schedule: legs, base };
   const views = legViews(s, plane);
+  const cycle = p.cycleDays ?? 1;
+  const multi = p.cycleDays !== undefined;
   let at = base;
-  let ready = 0;
+  let ready = -Infinity;
   for (const v of views) {
     const [open] = airportHours(v.from, s.year);
     const [, close] = airportHours(v.to, s.year);
-    if (v.from !== at) errs.push(`${hhmm(v.dep)}発の便は${AIRPORT_BY_CODE[v.from].name}発ですが、機体は${AIRPORT_BY_CODE[at].name}にいます`);
-    if (v.dep < ready) errs.push(`${hhmm(v.dep)}発の便は折り返し時間が足りません（${hhmm(ready)}以降）`);
-    if (v.dep < open) errs.push(`${AIRPORT_BY_CODE[v.from].name}は${hhmm(open)}まで使えません`);
-    if (v.arr > close) errs.push(`${AIRPORT_BY_CODE[v.to].name}の運用時間（〜${hhmm(close)}）を過ぎて到着します`);
+    const t = `${dayTag(v.dep)}${hhmm(v.dep)}`;
+    if (v.from !== at) errs.push(`${t}発の便は${AIRPORT_BY_CODE[v.from].name}発ですが、機体は${AIRPORT_BY_CODE[at].name}にいます`);
+    if (v.dep < ready) errs.push(`${t}発の便は折り返し時間が足りません（${hhmm(ready)}以降）`);
+    if (!multi) {
+      if (v.dep < open) errs.push(`${AIRPORT_BY_CODE[v.from].name}は${hhmm(open)}まで使えません`);
+      if (v.arr > close) errs.push(`${AIRPORT_BY_CODE[v.to].name}の運用時間（〜${hhmm(close)}）を過ぎて到着します`);
+    } else {
+      if (!inHours(v.from, s.year, v.dep)) errs.push(`${AIRPORT_BY_CODE[v.from].name}の運用時間外に出発します`);
+      if (!inHours(v.to, s.year, v.arr)) errs.push(`${AIRPORT_BY_CODE[v.to].name}の運用時間外に到着します`);
+    }
     const check = canFly(planeType(p), v.route.from, v.route.to, s.year);
     if (!check.ok) errs.push(check.reason);
     at = v.to;
     ready = v.arr + minTurnMin(p);
   }
   if (views.length && at !== base) errs.push(`最終便が拠点（${AIRPORT_BY_CODE[base].name}）に戻っていません`);
+  if (multi && views.length && ready > views[0].dep + cycle * 1440) errs.push(`${cycle}日のサイクルに収まっていません`);
   return errs;
 }
 
@@ -100,10 +125,11 @@ export function slotUsage(s: GameState, planes = s.planes): Record<string, numbe
   const slotSet = new Set(slotAirports(s.year));
   for (const p of planes) {
     if (p.status === 'onOrder') continue;
+    const perDay = 1 / (p.cycleDays ?? 1);
     for (const leg of p.schedule) {
       const r = s.routes.find((x) => x.id === leg.routeId);
       if (!r) continue;
-      for (const code of [r.from, r.to]) if (slotSet.has(code)) use[code] = (use[code] ?? 0) + 1;
+      for (const code of [r.from, r.to]) if (slotSet.has(code)) use[code] = (use[code] ?? 0) + perDay;
     }
   }
   return use;
@@ -121,10 +147,10 @@ export function routeWeekly(s: GameState, route: Route, fly: Set<string>) {
     if (!fly.has(p.id)) continue;
     for (const leg of p.schedule) {
       if (leg.routeId !== route.id) continue;
-      const n = dayCount(leg.days);
+      const n = legsPerWeek(p, leg);
       deps[leg.dir] += n;
       seats[leg.dir] += n * planeType(p).seats;
-      weight[leg.dir] += n * timeWeight(leg.dep);
+      weight[leg.dir] += n * (isForeign(legFrom(route, leg)) ? 1 : timeWeight(leg.dep % 1440));
       legs.push({ plane: p, leg, perWeek: n });
     }
   }
@@ -187,7 +213,7 @@ export function autoSchedule(s: GameState): GameState {
   // targets minus what locked planes already fly
   const lockedPlanes = s.planes.filter((p) => p.locked);
   const needs: Need[] = s.routes.map((route) => {
-    const flown = lockedPlanes.reduce((n, p) => n + p.schedule.filter((l) => l.routeId === route.id && l.dir === 0).reduce((m, l) => m + dayCount(l.days), 0), 0);
+    const flown = lockedPlanes.reduce((n, p) => n + p.schedule.filter((l) => l.routeId === route.id && l.dir === 0).reduce((m, l) => m + legsPerWeek(p, l), 0), 0);
     return { route, remainingWeekly: Math.max(0, route.targetWeekly - flown) };
   });
   const slotLeft: Record<string, number> = {};
@@ -198,7 +224,7 @@ export function autoSchedule(s: GameState): GameState {
   // longest routes first: they are the hardest to fit
   needs.sort((a, b) => routeDistance(b.route.from, b.route.to) - routeDistance(a.route.from, a.route.to));
 
-  const planes = [...unlocked].sort((a, b) => planeType(b).seats - planeType(a).seats).map((p) => ({ ...p, schedule: [] as Leg[] }));
+  const planes = [...unlocked].sort((a, b) => planeType(b).seats - planeType(a).seats).map((p) => ({ ...p, schedule: [] as Leg[], cycleDays: undefined as number | undefined }));
   const state = { time: new Map<string, number>(), at: new Map<string, string>() };
   for (const p of planes) {
     state.time.set(p.id, 0);
@@ -221,7 +247,7 @@ export function autoSchedule(s: GameState): GameState {
       // if no plane is based at either end, move an idle plane there
       if (!planes.some((p) => (p.base === r.from || p.base === r.to) && (!r.typeId || p.typeId === r.typeId) && canFly(planeType(p), r.from, r.to, s.year).ok)) {
         const idle = planes.find((p) => p.schedule.length === 0 && (!r.typeId || p.typeId === r.typeId) && canFly(planeType(p), r.from, r.to, s.year).ok);
-        if (idle) idle.base = s.crewBases.includes(r.to) ? r.to : r.from;
+        if (idle) idle.base = isForeign(r.from) ? r.to : isForeign(r.to) ? r.from : s.crewBases.includes(r.to) ? r.to : r.from;
       }
       for (const p of planes) {
         if (r.typeId && p.typeId !== r.typeId) continue;
@@ -243,7 +269,21 @@ export function autoSchedule(s: GameState): GameState {
           const backArr = back + block;
           if (arr <= closeA && back >= openA && backArr <= closeB) { chosen = dep; break; }
         }
-        if (chosen === null) continue;
+        if (chosen === null) {
+          // long-haul: an idle plane flies a dedicated rotation over several days
+          if (p.schedule.length || state.time.get(p.id)! > 0) continue;
+          const cyc = longHaulCycle(s, p, r, outDir, turn);
+          if (!cyc) continue;
+          const touchesL = [r.from, r.to].filter((c) => c in slotLeft);
+          if (touchesL.some((c) => slotLeft[c] < 2 / cyc.days)) continue;
+          for (const c of touchesL) slotLeft[c] -= 2 / cyc.days;
+          p.schedule.push(...cyc.legs);
+          p.cycleDays = cyc.days;
+          state.time.set(p.id, Infinity);
+          need.remainingWeekly -= 7 / cyc.days;
+          placed = true;
+          break;
+        }
         // slots: each round trip uses 2 movements at each slot airport it touches
         const touches = [r.from, r.to].filter((c) => c in slotLeft);
         if (touches.some((c) => slotLeft[c] < 2)) continue;
@@ -264,6 +304,36 @@ export function autoSchedule(s: GameState): GameState {
   return { ...s, planes: s.planes.map((p) => result.get(p.id) ?? p) };
 }
 
+/**
+ * A multi-day out-and-back rotation for routes too long for a day trip.
+ * Departs from the base when it opens; the return waits at the far end until
+ * it can arrive home inside operating hours. Returns null if nothing fits.
+ */
+function longHaulCycle(s: GameState, p: Plane, r: Route, outDir: 0 | 1, turn: number): { legs: Leg[]; days: number } | null {
+  const away = outDir === 0 ? r.to : r.from;
+  const block = legMinutes(p, r);
+  const [openB] = airportHours(p.base, s.year);
+  // evening departures suit long-haul best; try a few departure times
+  for (const dep0 of [1080, 1200, 660, 780, 900, openB]) {
+    const dep = Math.max(dep0, openB);
+    if (!inHours(p.base, s.year, dep) || !inHours(away, s.year, dep + block)) continue;
+    let back = dep + block + turn;
+    let tries = 0;
+    while ((!inHours(away, s.year, back) || !inHours(p.base, s.year, back + block)) && tries++ < 96) back += 15;
+    if (tries >= 96) continue;
+    const end = back + block + turn;
+    const days = Math.max(1, Math.ceil((end - dep) / 1440));
+    return {
+      days,
+      legs: [
+        { routeId: r.id, dir: outDir, dep, days: DAILY },
+        { routeId: r.id, dir: (1 - outDir) as 0 | 1, dep: back, days: DAILY },
+      ],
+    };
+  }
+  return null;
+}
+
 /** Spread n (<7) weekly flights over the week, e.g. 3 -> Mon/Wed/Fri */
 export function spreadDays(n: number): number {
   let mask = 0;
@@ -273,7 +343,8 @@ export function spreadDays(n: number): number {
 
 /** How many weekly round trips the auto-scheduler managed for a route */
 export function scheduledWeekly(s: GameState, routeId: string): number {
-  return s.planes.reduce((n, p) => n + p.schedule.filter((l) => l.routeId === routeId && l.dir === 0).reduce((m, l) => m + dayCount(l.days), 0), 0);
+  const n = s.planes.reduce((n, p) => n + p.schedule.filter((l) => l.routeId === routeId && l.dir === 0).reduce((m, l) => m + legsPerWeek(p, l), 0), 0);
+  return Math.round(n * 10) / 10;
 }
 
 // ---- manual edits --------------------------------------------------------
@@ -326,7 +397,7 @@ export function simulateDelays(s: GameState, p: Plane, seed: number, days = 20):
       const depActual = Math.max(v.dep, readyAt) + fresh;
       const arrActual = depActual + (v.arr - v.dep) + (r() - 0.5) * 8;
       const [, close] = airportHours(v.to, s.year);
-      if (arrActual > close + 30) {
+      if (close < 1440 && (v.arr % 1440) + (arrActual - v.arr) > close + 30) {
         st.cancelled++;
         // the plane stays put; the rest of the day's legs start late from scratch
         prevArrActual = arrActual;

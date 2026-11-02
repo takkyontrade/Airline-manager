@@ -17,6 +17,13 @@ export interface Airport {
   island?: boolean; // 離島（鉄道と競合しない）
   /** airports sharing a city (e.g. Haneda and Narita): demand is split between them */
   cityGroup?: string;
+  /** airports outside Japan (international destinations) */
+  foreign?: boolean;
+  country?: string;
+  /** monthly one-way demand from Tokyo in 2019, in thousands (calibration weight) */
+  intlWeight?: number;
+  /** minutes of ETOPS a twin needs on this route (over-water) */
+  etops?: number;
 }
 
 const A = (code: string, name: string, city: string, lat: number, lon: number, openYear: number, runways: [number, number][], popM: number, tourism: number, region: string, extra: Partial<Airport> = {}): Airport =>
@@ -93,11 +100,49 @@ export const AIRPORTS: Airport[] = [
   A('MMY', '宮古', '宮古島', 24.783, 125.295, 1972, [[1972, 1500], [1983, 2000]], 0.06, 2.5, '沖縄', { island: true }),
   A('ISG', '石垣（新石垣）', '石垣', 24.345, 124.187, 1972, [[1972, 1500], [2013, 2000]], 0.05, 2.8, '沖縄', { island: true }),
   A('OGN', '与那国', '与那国', 24.467, 122.978, 1972, [[1972, 1200], [2007, 2000]], 0.002, 2.5, '沖縄', { island: true }),
+  // ---- 海外（日本発の国際線の目的地）
+  A('GMP', '金浦', 'ソウル', 37.558, 126.791, 1960, [[1960, 3200]], 0, 1, '東アジア', { foreign: true, country: '韓国', intlWeight: 70, cityGroup: 'SEL' }),
+  A('ICN', '仁川', 'ソウル', 37.46, 126.441, 2001, [[2001, 3750]], 0, 1, '東アジア', { foreign: true, country: '韓国', intlWeight: 180, cityGroup: 'SEL' }),
+  A('PUS', '金海', '釜山', 35.18, 128.938, 1976, [[1976, 3200]], 0, 1, '東アジア', { foreign: true, country: '韓国', intlWeight: 25 }),
+  A('TSA', '松山', '台北', 25.069, 121.552, 1960, [[1960, 2600]], 0, 1, '東アジア', { foreign: true, country: '台湾', intlWeight: 55, cityGroup: 'TPE' }),
+  A('TPE', '桃園', '台北', 25.077, 121.233, 1979, [[1979, 3660]], 0, 1, '東アジア', { foreign: true, country: '台湾', intlWeight: 145, cityGroup: 'TPE' }),
+  A('HKG', '香港', '香港', 22.308, 113.918, 1960, [[1960, 3400]], 0, 1, '東アジア', { foreign: true, country: '香港', intlWeight: 90 }),
+  A('PEK', '北京首都', '北京', 40.08, 116.585, 1974, [[1974, 3800]], 0, 1, '東アジア', { foreign: true, country: '中国', intlWeight: 60 }),
+  A('SHA', '虹橋', '上海', 31.198, 121.336, 1974, [[1974, 3400]], 0, 1, '東アジア', { foreign: true, country: '中国', intlWeight: 50, cityGroup: 'SHA' }),
+  A('PVG', '浦東', '上海', 31.144, 121.808, 1999, [[1999, 4000]], 0, 1, '東アジア', { foreign: true, country: '中国', intlWeight: 100, cityGroup: 'SHA' }),
+  A('MNL', 'マニラ', 'マニラ', 14.509, 121.02, 1960, [[1960, 3400]], 0, 1, '東南アジア', { foreign: true, country: 'フィリピン', intlWeight: 45 }),
+  A('BKK', 'バンコク', 'バンコク', 13.69, 100.75, 1960, [[1960, 3700]], 0, 1, '東南アジア', { foreign: true, country: 'タイ', intlWeight: 90 }),
+  A('SIN', 'シンガポール', 'シンガポール', 1.364, 103.991, 1960, [[1960, 4000]], 0, 1, '東南アジア', { foreign: true, country: 'シンガポール', intlWeight: 45 }),
+  A('KUL', 'クアラルンプール', 'クアラルンプール', 2.745, 101.71, 1965, [[1965, 4000]], 0, 1, '東南アジア', { foreign: true, country: 'マレーシア', intlWeight: 22 }),
+  A('CGK', 'ジャカルタ', 'ジャカルタ', -6.126, 106.656, 1962, [[1962, 3600]], 0, 1, '東南アジア', { foreign: true, country: 'インドネシア', intlWeight: 20 }),
+  A('DPS', 'デンパサール', 'バリ島', -8.748, 115.167, 1970, [[1970, 3000]], 0, 1, '東南アジア', { foreign: true, country: 'インドネシア', intlWeight: 14 }),
+  A('SGN', 'ホーチミン', 'ホーチミン', 10.819, 106.652, 1994, [[1994, 3800]], 0, 1, '東南アジア', { foreign: true, country: 'ベトナム', intlWeight: 25 }),
+  A('HAN', 'ハノイ', 'ハノイ', 21.221, 105.807, 1994, [[1994, 3800]], 0, 1, '東南アジア', { foreign: true, country: 'ベトナム', intlWeight: 25 }),
+  A('GUM', 'グアム', 'グアム', 13.484, 144.796, 1967, [[1967, 3000]], 0, 1, '太平洋', { foreign: true, country: 'アメリカ', intlWeight: 30, etops: 120 }),
+  A('SPN', 'サイパン', 'サイパン', 15.119, 145.729, 1976, [[1976, 2650]], 0, 1, '太平洋', { foreign: true, country: 'アメリカ', intlWeight: 7, etops: 120 }),
+  A('HNL', 'ホノルル', 'ホノルル', 21.318, -157.922, 1960, [[1960, 3700]], 0, 1, '太平洋', { foreign: true, country: 'アメリカ', intlWeight: 90, etops: 180 }),
+  A('SYD', 'シドニー', 'シドニー', -33.946, 151.177, 1960, [[1960, 3900]], 0, 1, 'オセアニア', { foreign: true, country: 'オーストラリア', intlWeight: 18, etops: 120 }),
+  A('CNS', 'ケアンズ', 'ケアンズ', -16.886, 145.755, 1984, [[1984, 3150]], 0, 1, 'オセアニア', { foreign: true, country: 'オーストラリア', intlWeight: 8, etops: 120 }),
+  A('LAX', 'ロサンゼルス', 'ロサンゼルス', 33.942, -118.408, 1960, [[1960, 3700]], 0, 1, '北米', { foreign: true, country: 'アメリカ', intlWeight: 55, etops: 180 }),
+  A('SFO', 'サンフランシスコ', 'サンフランシスコ', 37.619, -122.375, 1960, [[1960, 3600]], 0, 1, '北米', { foreign: true, country: 'アメリカ', intlWeight: 30, etops: 180 }),
+  A('SEA', 'シアトル', 'シアトル', 47.45, -122.309, 1960, [[1960, 3600]], 0, 1, '北米', { foreign: true, country: 'アメリカ', intlWeight: 12, etops: 180 }),
+  A('YVR', 'バンクーバー', 'バンクーバー', 49.195, -123.184, 1960, [[1960, 3500]], 0, 1, '北米', { foreign: true, country: 'カナダ', intlWeight: 12, etops: 180 }),
+  A('ORD', 'シカゴ', 'シカゴ', 41.974, -87.907, 1962, [[1962, 3900]], 0, 1, '北米', { foreign: true, country: 'アメリカ', intlWeight: 12, etops: 180 }),
+  A('JFK', 'ニューヨーク', 'ニューヨーク', 40.64, -73.779, 1960, [[1960, 4400]], 0, 1, '北米', { foreign: true, country: 'アメリカ', intlWeight: 35, etops: 180 }),
+  A('LHR', 'ロンドン', 'ロンドン', 51.47, -0.454, 1960, [[1960, 3900]], 0, 1, 'ヨーロッパ', { foreign: true, country: 'イギリス', intlWeight: 33, etops: 120 }),
+  A('CDG', 'パリ', 'パリ', 49.01, 2.548, 1974, [[1974, 4200]], 0, 1, 'ヨーロッパ', { foreign: true, country: 'フランス', intlWeight: 30, etops: 120 }),
+  A('ORY', 'オルリー', 'パリ', 48.723, 2.379, 1960, [[1960, 3600]], 0, 1, 'ヨーロッパ', { foreign: true, country: 'フランス', intlWeight: 30, etops: 120, closeYear: 1974 }),
+  A('FRA', 'フランクフルト', 'フランクフルト', 50.034, 8.562, 1960, [[1960, 4000]], 0, 1, 'ヨーロッパ', { foreign: true, country: 'ドイツ', intlWeight: 25, etops: 120 }),
+  A('AMS', 'アムステルダム', 'アムステルダム', 52.311, 4.768, 1960, [[1960, 3800]], 0, 1, 'ヨーロッパ', { foreign: true, country: 'オランダ', intlWeight: 8, etops: 120 }),
+  A('FCO', 'ローマ', 'ローマ', 41.8, 12.239, 1961, [[1961, 3900]], 0, 1, 'ヨーロッパ', { foreign: true, country: 'イタリア', intlWeight: 8, etops: 120 }),
+  A('SVO', 'モスクワ', 'モスクワ', 55.973, 37.415, 1967, [[1967, 3700]], 0, 1, 'ヨーロッパ', { foreign: true, country: 'ソ連・ロシア', intlWeight: 6, etops: 120 }),
 ];
 
 export const AIRPORT_BY_CODE: Record<string, Airport> = Object.fromEntries(
   AIRPORTS.map((a) => [a.code, a]),
 );
+
+export const isForeign = (code: string) => !!AIRPORT_BY_CODE[code]?.foreign;
 
 export const isAirportOpen = (a: Airport, year: number) => year >= a.openYear && (a.closeYear === undefined || year < a.closeYear);
 

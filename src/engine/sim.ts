@@ -1,13 +1,15 @@
 // Core game state transitions: new game, routes and the monthly simulation.
 // All functions are pure: they take a state and return a new one (or an
 // error), so the UI and tests share them.
-import { AIRPORTS, AIRPORT_BY_CODE, isAirportOpen } from '../data/airports';
+import { AIRPORTS, AIRPORT_BY_CODE, isAirportOpen, isForeign } from '../data/airports';
+import { ALLIANCE_BY_ID } from '../data/alliances';
+import { RIVAL_BY_ID } from '../data/rivals';
 import { AIRCRAFT_TYPES } from '../data/aircraft';
 import { econ, yearFrac } from '../data/economy';
 import {
   ADMIN_SHARE, blockHours, cabinCostMonthly, flightCost, fuelFactor, groundCostPerPax,
   HEAVY_CHECK_HOURS, MAINT_LEVELS, maintAgeFactor,
-  marketDemand, overheadMonthly, pilotWage, referenceFare, routeDistance, SALES_COMMISSION,
+  marketDemand, intlDemand, intlGatewayShare, isIntlRoute, overheadMonthly, pilotWage, routeReferenceFare, routeDistance, SALES_COMMISSION,
 } from './model';
 import {
   heavyCheckDue, heavyCheckOverdue, nowYM, planeAge, planeType, refreshUsedMarket, startHeavyCheck, ymLabel,
@@ -20,7 +22,7 @@ import {
 } from './schedule';
 import type { GameState, MaintLevel, MonthCosts, MonthReport, Plane, Route, RouteResult, SchedulePolicy } from './types';
 import { fail, formatYen, nextId, ok, rng, withNews, type Result } from './util';
-import { isTrunk, competitors, pairKey, updatePressure, type Competitor } from './rivals';
+import { allianceMembers, isTrunk, competitors, pairKey, partners, updatePressure, type Competitor } from './rivals';
 import { fareBand, GROUNDINGS, HISTORY_NEWS, RAIL_OPENINGS, DEMAND_EVENTS, routeLicensing } from '../data/history';
 import { RIVAL_EVENTS } from '../data/rivals';
 
@@ -102,13 +104,22 @@ export function isGrounded(typeId: string, year: number, month: number): boolean
 
 /** Government approval for a new route (regulated eras) */
 export function routeApproval(s: GameState, from: string, to: string): { ok: boolean; reason: string } {
+  if (isIntlRoute(from, to)) {
+    const jp = isForeign(from) ? to : from;
+    if (intlGatewayShare(jp, s.year) === 0) return { ok: false, reason: `${AIRPORT_BY_CODE[jp].name}は${s.year}年には国際線を扱っていません` };
+    if (s.year < 1986) return { ok: false, reason: 'この時代、日本の国際線は日本国際航空だけが飛べます（1986年から他社も参入できます）' };
+    const fleet = s.planes.filter((p) => p.status !== 'onOrder').length;
+    const need = s.year < 2000 ? { rep: 55, fleet: 4 } : { rep: 45, fleet: 2 };
+    if (s.reputation >= need.rep && fleet >= need.fleet) return { ok: true, reason: '国際線の運航が認められました' };
+    return { ok: false, reason: `国際線の開設には評判${need.rep}以上・機材${need.fleet}機以上の実績が必要です` };
+  }
   const lic = routeLicensing(s.year);
   if (!lic.required) return { ok: true, reason: lic.label };
   const rivals = competitors(s, from, to);
   if (rivals.length === 0) return { ok: true, reason: '他社が飛んでいない路線なので免許が下りました' };
   if (!isTrunk(from, to)) return { ok: true, reason: 'ローカル線なので免許が下りました' };
   const fleet = s.planes.filter((p) => p.status !== 'onOrder').length;
-  const need = s.year < 1986 ? { rep: 52, fleet: 2 } : { rep: 45, fleet: 1 };
+  const need = s.year < 1986 ? { rep: 50, fleet: 3 } : { rep: 45, fleet: 2 };
   if (s.reputation >= need.rep && fleet >= need.fleet) return { ok: true, reason: '実績が認められ、免許が下りました' };
   return { ok: false, reason: `${lic.label}。幹線への参入には評判${need.rep}以上・機材${need.fleet}機以上の実績が必要です` };
 }
@@ -124,12 +135,12 @@ export function openRoute(s: GameState, from: string, to: string, opts: { skipLi
   if (!isAirportOpen(a, s.year) || !isAirportOpen(b, s.year)) return fail('まだ開港していない空港があります');
   if (s.routes.some((r) => (r.from === from && r.to === to) || (r.from === to && r.to === from)))
     return fail('すでに開設済みの路線です');
+  if (a.foreign && b.foreign) return fail('外国の空港同士は結べません（日本発着の路線のみ）');
   const approval = routeApproval(s, from, to);
   if (!approval.ok && !opts.skipLicense) return fail(approval.reason);
   const [id, s2] = nextId(s, 'R');
-  const km = routeDistance(from, to);
   const route: Route = {
-    id, from, to, targetWeekly: 7, typeId: null, policy: 'pack', fareYen: referenceFare(km, s.year, s.month),
+    id, from, to, targetWeekly: 7, typeId: null, policy: 'pack', fareYen: routeReferenceFare(from, to, s.year, s.month),
     openedYear: s.year, openedMonth: s.month,
   };
   return ok(autoSchedule(withNews({ ...s2, routes: [...s2.routes, route] }, `${a.name}〜${b.name}線を開設しました。`)));
@@ -155,7 +166,7 @@ export function setRoute(s: GameState, routeId: string, patch: RoutePatch): Resu
   next.fareYen = Math.max(100, Math.round(next.fareYen / 10) * 10);
   const band = fareBand(s.year);
   if (band && patch.fareYen !== undefined) {
-    const ref = referenceFare(routeDistance(r.from, r.to), s.year, s.month);
+    const ref = routeReferenceFare(r.from, r.to, s.year, s.month);
     next.fareYen = Math.round(Math.min(ref * band[1], Math.max(ref * band[0], next.fareYen)) / 10) * 10;
   }
   const s2 = { ...s, routes: s.routes.map((x) => (x.id === routeId ? next : x)) };
@@ -172,6 +183,50 @@ export interface RouteForecast {
   rivals: Competitor[];
   refFare: number;
   weeklyRt: number;
+  /** of marketOneWay: passengers connecting to/from our other flights */
+  connecting: number;
+  /** rivals we cooperate with on this route */
+  partnerIds: string[];
+}
+
+/** Our frequency share on a route (used to estimate how much connecting traffic we capture) */
+function feedShare(s: GameState, r: Route, fly: Set<string>): number {
+  const ours = routeWeekly(s, r, fly).roundTrips;
+  if (!ours) return 0;
+  const theirs = competitors(s, r.from, r.to).reduce((n, c) => n + c.weeklyFreq, 0);
+  return ours / (ours + theirs);
+}
+
+/**
+ * Connecting passengers: travellers from a domestic city who change at our
+ * gateway onto our international flight (or the reverse, on the domestic leg).
+ */
+export function connectingDemand(s: GameState, route: Route, fly = flyablePlanes(s)): number {
+  const { year, month } = s;
+  let total = 0;
+  const intl = isIntlRoute(route.from, route.to);
+  const gw = intl ? (isForeign(route.from) ? route.to : route.from) : null;
+  for (const other of s.routes) {
+    if (other.id === route.id) continue;
+    const bank = route.policy === 'bank' || other.policy === 'bank' ? 1.3 : 1;
+    if (intl) {
+      // domestic feeder D-G into our international route G-X
+      if (isIntlRoute(other.from, other.to)) continue;
+      if (other.from !== gw && other.to !== gw) continue;
+      const d = other.from === gw ? other.to : other.from;
+      const x = route.from === gw ? route.to : route.from;
+      total += intlDemand(d, x, year, month, true) * 0.6 * feedShare(s, other, fly) * bank;
+    } else {
+      // our international route G-X fed by this domestic route D-G
+      if (!isIntlRoute(other.from, other.to)) continue;
+      const g = isForeign(other.from) ? other.to : other.from;
+      if (route.from !== g && route.to !== g) continue;
+      const d = route.from === g ? route.to : route.from;
+      const x = isForeign(other.from) ? other.from : other.to;
+      total += intlDemand(d, x, year, month, true) * 0.6 * feedShare(s, other, fly) * bank;
+    }
+  }
+  return total;
 }
 
 function routeComfort(legs: { plane: Plane; perWeek: number }[]): number {
@@ -187,10 +242,15 @@ function lastOnTime(s: GameState, routeId: string): number {
 
 export function routeMarket(s: GameState, route: Route, fly = flyablePlanes(s)): RouteForecast {
   const { year, month } = s;
-  const km = routeDistance(route.from, route.to);
-  const ref = referenceFare(km, year, month);
-  const base = marketDemand(route.from, route.to, year, month);
+  const ref = routeReferenceFare(route.from, route.to, year, month);
+  const intl = isIntlRoute(route.from, route.to);
+  const connecting = connectingDemand(s, route, fly);
   const rivals = competitors(s, route.from, route.to);
+  const ptn = partners(s);
+  const partnerIds = rivals.filter((c) => ptn.has(c.rival.id)).map((c) => c.rival.id);
+  // a foreign partner feeds passengers from its own network at the far end
+  const farFeed = intl && rivals.some((c) => c.rival.role === 'foreign' && ptn.has(c.rival.id)) ? 1.2 : 1;
+  const base = marketDemand(route.from, route.to, year, month) * farFeed + connecting;
   const wk = routeWeekly(s, route, fly);
   const effFreq = (wk.weight[0] + wk.weight[1]) / 2; // time-of-day weighted weekly departures
   const repF = (s.reputation / 50) ** 0.3;
@@ -201,7 +261,8 @@ export function routeMarket(s: GameState, route: Route, fly = flyablePlanes(s)):
   let rivalPriceSum = 0;
   let rivalFreq = 0;
   for (const c of rivals) {
-    const a = c.weeklyFreq ** 0.8 * c.fareMul ** -2 * c.comfort;
+    // partners coordinate with us instead of competing head-on
+    const a = c.weeklyFreq ** 0.8 * c.fareMul ** -2 * c.comfort * (ptn.has(c.rival.id) ? 0.5 : 1);
     aRivals += a;
     rivalPriceSum += a * c.fareMul;
     rivalFreq += c.weeklyFreq;
@@ -210,9 +271,9 @@ export function routeMarket(s: GameState, route: Route, fly = flyablePlanes(s)):
   const share = total > 0 ? aUs / total : 0;
   const totalFreq = wk.roundTrips + rivalFreq;
   const avgPriceRatio = total > 0 ? (aUs * priceRatio + rivalPriceSum) / total : 1;
-  const freqF = 0.6 + 0.4 * Math.min(1.3, totalFreq / 14);
+  const freqF = 0.6 + 0.4 * Math.min(1.3, totalFreq / (intl ? 7 : 14));
   const marketOneWay = base * avgPriceRatio ** -1.1 * freqF;
-  return { marketOneWay, share, rivals, refFare: ref, weeklyRt: wk.roundTrips };
+  return { marketOneWay, share, rivals, refFare: ref, weeklyRt: wk.roundTrips, connecting: connecting * avgPriceRatio ** -1.1 * freqF, partnerIds };
 }
 
 // ---- monthly simulation -------------------------------------------------
@@ -314,7 +375,7 @@ export function advanceMonth(s0: GameState): GameState {
       seats += flown * t.seats;
       onTime += st && st.flights ? (st.onTime / st.flights) * n : n;
       delayedFlights += st && st.flights ? (st.flights - st.onTime - st.cancelled) / st.flights * n : 0;
-      const c = flightCost(t, km, s.year, s.month);
+      const c = flightCost(t, km, s.year, s.month, isIntlRoute(route.from, route.to));
       const age = planeAge(plane, s.year);
       const fuel = c.fuel * fuelFactor(age, plane.condition) * flown;
       const wet = plane.lease?.kind === 'wet';
@@ -328,7 +389,8 @@ export function advanceMonth(s0: GameState): GameState {
     const want = f.marketOneWay * f.share * (0.93 + r() * 0.14) * 2;
     const pax = Math.min(want, seats);
     const rev = pax * route.fareYen;
-    const ground = pax * groundCostPerPax(s.year, s.month);
+    // international passengers need more service (meals, check-in, immigration handling)
+    const ground = pax * groundCostPerPax(s.year, s.month) * (isIntlRoute(route.from, route.to) ? 1.5 : 1);
     const sales = rev * SALES_COMMISSION;
     costs.ground += ground;
     costs.sales += sales;
@@ -360,8 +422,13 @@ export function advanceMonth(s0: GameState): GameState {
       const nights = Math.max(...p.schedule.map((l) => dayCount(l.days))) * WEEKS_PER_MONTH;
       costs.bases += nights * (t.cockpitCrew + t.cabinCrew) * 6000 * cpi;
     }
+    // long-haul crews lay over abroad
+    if (fly.has(p.id) && (p.cycleDays ?? 1) > 1) {
+      const nights = (7 * (p.cycleDays! - 1)) / p.cycleDays! * WEEKS_PER_MONTH;
+      costs.bases += nights * (t.cockpitCrew + t.cabinCrew) * 12000 * cpi;
+    }
   }
-  costs.bases += baseCostMonthly(s) + opsCostMonthly(s);
+  costs.bases += baseCostMonthly(s) + opsCostMonthly(s) + partnershipCostMonthly(s);
   const activePlanes = s.planes.filter((p) => p.status !== 'onOrder').length;
   costs.overhead = overheadMonthly(activePlanes, s.year, s.month) + revenue * ADMIN_SHARE;
 
@@ -446,6 +513,12 @@ function historyNews(s0: GameState): GameState {
   for (const e of DEMAND_EVENTS) if (e.from[0] * 12 + e.from[1] === t) s = withNews(s, `${e.title}${e.multiplier >= 1 ? '（需要が増えています）' : '（需要が落ち込んでいます）'}`, 'history');
   for (const g of GROUNDINGS) if (g.from[0] * 12 + g.from[1] === t && (s.planes.some((p) => p.typeId === g.typeId) || g.typeId === 'dc10')) s = withNews(s, g.title, 'bad');
   for (const e of RIVAL_EVENTS) if (e.year === year && e.month === month) s = withNews(s, e.text, 'history');
+  if (month === 1) {
+    for (const al of Object.values(ALLIANCE_BY_ID)) {
+      if (al.from === year) s = withNews(s, `航空連合「${al.name}」が発足しました。国際線を2路線以上運航し評判60以上なら加盟を申し込めます。`, 'history');
+      if (al.japanese && al.japanese[1] === year && s.alliance !== al.id) s = withNews(s, `${RIVAL_BY_ID[al.japanese[0]].name}が「${al.name}」に加盟しました。`, 'history');
+    }
+  }
   // routes touching airports that closed this year
   if (month === 1) {
     if (AIRPORT_BY_CODE[s.baseAirport].closeYear === year) {
@@ -470,3 +543,65 @@ function historyNews(s0: GameState): GameState {
 }
 
 export { HEAVY_CHECK_HOURS, blockHours };
+
+// ---- alliances and codeshares --------------------------------------------
+
+export const ALLIANCE_FEE_MONTHLY = 15_000_000;
+export const CODESHARE_FEE_MONTHLY = 3_000_000;
+
+export function partnershipCostMonthly(s: GameState): number {
+  const cpi = econ.jpCpi(yearFrac(s.year, s.month));
+  return ((s.alliance ? ALLIANCE_FEE_MONTHLY : 0) + (s.codeshares?.length ?? 0) * CODESHARE_FEE_MONTHLY) * cpi;
+}
+
+const intlRouteCount = (s: GameState) => s.routes.filter((r) => isIntlRoute(r.from, r.to)).length;
+
+/** Can the player join this alliance now? */
+export function allianceEligibility(s: GameState, id: string): { ok: boolean; reason: string } {
+  const al = ALLIANCE_BY_ID[id];
+  if (!al) return { ok: false, reason: 'アライアンスが見つかりません' };
+  if (s.year < al.from) return { ok: false, reason: `${al.from}年に発足します` };
+  if (s.alliance) return { ok: false, reason: 'すでに別のアライアンスに加盟しています' };
+  if (al.japanese && s.year >= al.japanese[1]) return { ok: false, reason: `日本からは${RIVAL_BY_ID[al.japanese[0]].name}が加盟済みです` };
+  if (s.reputation < 60) return { ok: false, reason: '評判60以上が必要です' };
+  if (intlRouteCount(s) < 2) return { ok: false, reason: '国際線を2路線以上運航している必要があります' };
+  return { ok: true, reason: '加盟できます' };
+}
+
+export function joinAlliance(s: GameState, id: string): Result {
+  const e = allianceEligibility(s, id);
+  if (!e.ok) return fail(e.reason);
+  const al = ALLIANCE_BY_ID[id];
+  // individual codeshares with members are absorbed into the alliance
+  const members = new Set(allianceMembers({ ...s, alliance: id }, id));
+  return ok(withNews({ ...s, alliance: id, codeshares: (s.codeshares ?? []).filter((c) => !members.has(c)), reputation: s.reputation + 2 },
+    `${al.name}に加盟しました。加盟各社とのコードシェアと乗り継ぎが始まります。`, 'good'));
+}
+
+export function leaveAlliance(s: GameState): Result {
+  if (!s.alliance) return fail('アライアンスに加盟していません');
+  const al = ALLIANCE_BY_ID[s.alliance];
+  return ok(withNews({ ...s, alliance: null, reputation: s.reputation - 3 }, `${al.name}を脱退しました。`));
+}
+
+export function codeshareEligibility(s: GameState, rivalId: string): { ok: boolean; reason: string } {
+  const r = RIVAL_BY_ID[rivalId];
+  if (!r || r.role !== 'foreign') return { ok: false, reason: '海外の航空会社とだけ提携できます' };
+  if (s.year < 1990) return { ok: false, reason: 'コードシェアは1990年から結べます' };
+  if (s.year < r.from) return { ok: false, reason: 'まだ運航していない会社です' };
+  if (partners(s).has(rivalId)) return { ok: false, reason: 'すでに提携しています' };
+  if ((s.codeshares?.length ?? 0) >= 3) return { ok: false, reason: '個別提携は3社までです' };
+  if (s.reputation < 55) return { ok: false, reason: '評判55以上が必要です' };
+  if (intlRouteCount(s) < 1) return { ok: false, reason: '国際線を運航している必要があります' };
+  return { ok: true, reason: '提携できます' };
+}
+
+export function addCodeshare(s: GameState, rivalId: string): Result {
+  const e = codeshareEligibility(s, rivalId);
+  if (!e.ok) return fail(e.reason);
+  return ok(withNews({ ...s, codeshares: [...(s.codeshares ?? []), rivalId] }, `${RIVAL_BY_ID[rivalId].name}とコードシェア提携を結びました。`, 'good'));
+}
+
+export function removeCodeshare(s: GameState, rivalId: string): Result {
+  return ok({ ...s, codeshares: (s.codeshares ?? []).filter((c) => c !== rivalId) });
+}

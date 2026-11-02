@@ -2,9 +2,10 @@
 // The AI is deliberately conservative: it serves markets big enough for its
 // aircraft, follows the regulatory era, and reacts slowly when the player
 // takes a large share of one of its routes.
-import { AIRPORT_BY_CODE, isAirportOpen, AIRPORTS } from '../data/airports';
+import { AIRPORT_BY_CODE, isAirportOpen, isForeign, AIRPORTS } from '../data/airports';
+import { ALLIANCES, ALLIANCE_BY_ID } from '../data/alliances';
 import { RIVALS, RIVAL_EVENTS, type Rival } from '../data/rivals';
-import { marketDemand } from './model';
+import { marketDemand, routeDistance } from './model';
 import type { GameState } from './types';
 
 export interface Competitor {
@@ -22,7 +23,13 @@ const HUB_GROUPS = new Set(['HND', 'NRT', 'ITM', 'KIX', 'NKM', 'NGO', 'CTS', 'FU
 export function isTrunk(a: string, b: string): boolean {
   const A = AIRPORT_BY_CODE[a], B = AIRPORT_BY_CODE[b];
   const big = (x: typeof A) => x.popM >= 1.4;
-  return (big(A) && big(B)) || ((HUB_GROUPS.has(a) || HUB_GROUPS.has(b)) && Math.min(A.popM, B.popM) >= 0.8);
+  return big(A) && big(B);
+}
+
+/** Typical seats of the aircraft a rival uses on an international route */
+export function intlSeats(year: number, km: number): number {
+  if (km > 3500) return year < 1970 ? 140 : year < 1985 ? 380 : year < 2005 ? 400 : 300;
+  return year < 1970 ? 110 : year < 1980 ? 240 : year < 2000 ? 280 : 240;
 }
 
 export function rivalSeats(year: number, role: Rival['role']): number {
@@ -47,6 +54,15 @@ function shares(a: string, b: string, year: number): [Rival, number][] {
     const r = RIVALS.find((x) => x.id === id)!;
     if (active(r, year)) out.push([r, w]);
   };
+  if (isForeign(a) || isForeign(b)) {
+    const country = AIRPORT_BY_CODE[isForeign(a) ? a : b].country;
+    add('JIA', year < 1986 ? 0.6 : 0.5);
+    if (year >= 1986) add('YMT', year < 2000 ? 0.2 : 0.3);
+    const home = RIVALS.find((x) => x.role === 'foreign' && x.country === country);
+    if (home) add(home.id, 0.4);
+    const total = out.reduce((n, [, w]) => n + w, 0);
+    return out.map(([r, w]) => [r, w / total]);
+  }
   const okinawaLocal = AIRPORT_BY_CODE[a].region === '沖縄' && AIRPORT_BY_CODE[b].region === '沖縄';
   if (okinawaLocal) {
     add('NSA', 1);
@@ -72,20 +88,24 @@ function capacityMul(r: Rival, year: number): number {
 /** All rival airlines flying a pair this month */
 export function competitors(s: GameState, a: string, b: string, year = s.year, month = s.month): Competitor[] {
   if (!isAirportOpen(AIRPORT_BY_CODE[a], year) || !isAirportOpen(AIRPORT_BY_CODE[b], year)) return [];
+  if (isForeign(a) && isForeign(b)) return [];
+  const intl = isForeign(a) || isForeign(b);
+  const km = routeDistance(a, b);
   // airlines plan capacity on an average month of the year
   const demand = marketDemand(a, b, year, 6);
   const pressure = s.aiPressure?.[pairKey(a, b)] ?? 0;
   const out: Competitor[] = [];
 
   for (const [r, share] of shares(a, b, year)) {
-    const seats = rivalSeats(year, r.role);
+    const seats = intl ? intlSeats(year, km) : rivalSeats(year, r.role);
     // a market must fill at least one daily round trip at 60% before majors bother
     // point-to-point flying between two regional airports needs a much bigger market
-    const hub = HUB_GROUPS.has(a) || HUB_GROUPS.has(b);
+    const hub = intl || HUB_GROUPS.has(a) || HUB_GROUPS.has(b);
     const threshold = seats * 0.6 * 30 * (r.role === 'local' || r.role === 'okinawa' ? 0.5 : 1) * (hub ? 1 : 3);
-    if (demand < threshold) continue;
+    if (demand < (intl ? seats * 0.6 * 2 * 4.33 * (r.role === 'foreign' ? 1 : 1.5) : threshold)) continue;
     const supply = demand * 0.8 * share * capacityMul(r, year) * (1 + 0.3 * pressure);
-    const weekly = Math.max(r.role === 'local' ? 3 : 7, Math.round(supply / (seats * 0.68 * 4.33)));
+    const minWeekly = intl ? 2 : r.role === 'local' ? 3 : 7;
+    const weekly = Math.max(minWeekly, Math.round(supply / (seats * 0.68 * 4.33)));
     out.push({ rival: r, weeklyFreq: weekly, seats, fareMul: r.fareMul * (1 - 0.12 * pressure), comfort: rivalComfort(year, r) });
   }
 
@@ -135,4 +155,26 @@ export function rivalOverview(s: GameState): { rival: Rival; routes: number; wee
     const st = stats.get(r.id)!;
     return { rival: r, routes: st.routes, weekly: st.weekly, top: st.list.sort((a, b) => b[1] - a[1]).slice(0, 5).map(([n, f]) => `${n}（週${f}）`) };
   }).sort((a, b) => b.weekly - a.weekly);
+}
+
+/** Alliance members that have joined by this year (the Japanese member only if the player isn't in it) */
+export function allianceMembers(s: GameState, allianceId: string, year = s.year): string[] {
+  const al = ALLIANCE_BY_ID[allianceId];
+  if (!al || year < al.from) return [];
+  const ids = al.members.filter(([, y]) => year >= y).map(([id]) => id);
+  if (al.japanese && year >= al.japanese[1] && s.alliance !== al.id) ids.push(al.japanese[0]);
+  return ids;
+}
+
+/** Which alliance (if any) a rival belongs to this year */
+export function rivalAlliance(s: GameState, rivalId: string): string | null {
+  for (const al of ALLIANCES) if (allianceMembers(s, al.id).includes(rivalId)) return al.id;
+  return null;
+}
+
+/** Airlines cooperating with the player: alliance partners and individual codeshares */
+export function partners(s: GameState): Set<string> {
+  const out = new Set(s.codeshares ?? []);
+  if (s.alliance) for (const id of allianceMembers(s, s.alliance)) out.add(id);
+  return out;
 }

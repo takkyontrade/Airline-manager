@@ -11,7 +11,7 @@ export interface RailOpening {
 }
 
 export const RAIL_OPENINGS: RailOpening[] = [
-  { year: 1964, month: 10, name: '東海道新幹線（東京〜新大阪）', pairs: [['HND', 'ITM', 0.55], ['HND', 'NKM', 0.3], ['NKM', 'ITM', 0.3]] },
+  { year: 1964, month: 10, name: '東海道新幹線（東京〜新大阪）', pairs: [['HND', 'ITM', 0.4], ['HND', 'NKM', 0.2], ['NKM', 'ITM', 0.3]] },
   { year: 1972, month: 3, name: '山陽新幹線（新大阪〜岡山）', pairs: [['HND', 'OKJ', 0.75], ['ITM', 'OKJ', 0.3]] },
   { year: 1975, month: 3, name: '山陽新幹線（岡山〜博多）', pairs: [['HND', 'HIJ', 0.7], ['HND', 'FUK', 0.92], ['ITM', 'FUK', 0.6], ['ITM', 'HIJ', 0.3], ['ITM', 'KKJ', 0.5]] },
   { year: 1982, month: 6, name: '東北新幹線（大宮〜盛岡）', pairs: [['HND', 'SDJ', 0.2], ['HND', 'HNA', 0.4], ['HND', 'GAJ', 0.6]] },
@@ -90,11 +90,16 @@ export const HISTORY_NEWS: { year: number; month: number; text: string }[] = [
   { year: 1971, month: 5, text: 'ローカル線の2社が合併し、新しい国内航空会社が生まれました。' },
   { year: 1972, month: 5, text: '沖縄が本土に復帰し、那覇などへの路線が国内線になりました。' },
   { year: 1978, month: 5, text: '新東京国際空港（成田）が開港しました。' },
+  { year: 1985, month: 9, text: 'プラザ合意で円高が進んでいます。海外旅行が割安になり、ドル建ての燃料も安くなります。' },
+  { year: 1986, month: 3, text: '国際線への複数社の参入が認められました。評判と実績があれば日本発の国際線を開設できます。' },
   { year: 1986, month: 6, text: '航空憲法（45・47体制）が廃止され、国内線の競争が始まります。' },
+  { year: 1991, month: 12, text: 'ソ連が崩壊しました。' },
   { year: 1994, month: 9, text: '24時間空港の関西国際空港が開港しました。' },
   { year: 1998, month: 9, text: '35年ぶりの新規航空会社が羽田〜福岡線に参入しました。' },
+  { year: 1985, month: 4, text: '双発機の長距離洋上飛行（ETOPS）が認められ始めました。767なら太平洋路線も視野に入ります。' },
   { year: 2000, month: 2, text: '改正航空法が施行され、運賃と路線の設定が自由化されました。' },
   { year: 2005, month: 2, text: '中部国際空港が開港し、名古屋の空の玄関が移りました。' },
+  { year: 2010, month: 10, text: '羽田空港に国際線が戻ってきました。' },
   { year: 2010, month: 10, text: '羽田空港の4本目の滑走路が完成し、発着枠が大きく増えました。' },
   { year: 2012, month: 3, text: '日本初の本格的な格安航空会社（LCC）が就航しました。' },
   { year: 2020, month: 4, text: '新型コロナウイルスの流行で、旅客需要が激減しています。' },

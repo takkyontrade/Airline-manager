@@ -33,6 +33,8 @@ export interface Plane {
   base: string;
   /** daily rotation, repeated on the days in each leg's mask */
   schedule: Leg[];
+  /** long-haul planes fly a rotation spanning several days (legs' dep can exceed 24h; day masks ignored) */
+  cycleDays?: number;
   /** locked planes keep their schedule when the auto-scheduler runs */
   locked: boolean;
   /** 0..100 */
@@ -182,6 +184,10 @@ export interface GameState {
   history: MonthReport[];
   news: NewsItem[];
   negativeCashMonths: number;
+  /** alliance the player belongs to */
+  alliance?: string | null;
+  /** foreign airlines with an individual codeshare agreement */
+  codeshares?: string[];
   gameOver: boolean;
   nextId: number;
   seed: number;

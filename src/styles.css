@@ -113,3 +113,7 @@ label.inline { flex-direction: row; align-items: center; gap: 6px; }
 .day.on { background: var(--accent); color: #fff; }
 input[type=range] { width: 100%; }
 .rival-chip { display: inline-block; border: 1px solid var(--line); border-left-width: 4px; border-radius: 4px; padding: 1px 6px; margin: 2px 4px 2px 0; font-size: 12px; background: #0d1628; }
+.map-buttons { position: absolute; top: 8px; left: 8px; display: flex; gap: 4px; z-index: 2; }
+.map .apt.foreign circle:not(.hit) { fill: #ffb86b; }
+.tag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 8px; background: #2a3550; color: #cfe0ff; margin-left: 6px; }
+.tag.intl { background: #5a3a1a; color: #ffd8a8; }

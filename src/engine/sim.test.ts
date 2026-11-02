@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'vitest';
-import { advanceMonth, closeRoute, newGame, openRoute, setOps, setRoute } from './sim';
+import { advanceMonth, closeRoute, joinAlliance, newGame, openRoute, routeMarket, setOps, setRoute } from './sim';
 import { autoSchedule, scheduledWeekly, setPlaneSchedule, slotUsage, validateRotation, legViews } from './schedule';
 import { acquireUsed, disposePlane, orderNew, leadMonths, startHeavyCheck } from './fleet';
 import { creditLimit, takeLoan, repayLoan } from './finance';
 import { crewedPlanes, hirePilots, trainPilots } from './staff';
-import { canFly, HEAVY_CHECK_HOURS, marketDemand, referenceFare, routeDistance } from './model';
+import { canFly, HEAVY_CHECK_HOURS, intlReferenceFare, marketDemand, referenceFare, routeDistance } from './model';
 import { AIRCRAFT_BY_ID } from '../data/aircraft';
 import type { GameState, UsedListing } from './types';
 import type { Result } from './util';
@@ -213,5 +213,68 @@ describe('people and money', () => {
     expect(s.history[0].costs.interest).toBeGreaterThan(0);
     s = must(repayLoan(s, s.loans[0].id));
     expect(s.loans).toHaveLength(0);
+  });
+});
+
+describe('international', () => {
+  function fleet(year: number, typeId: string, n: number, base = 'NRT') {
+    let s: GameState = { ...newGame('国際テスト', 'HND', 7), year, month: 6, reputation: 70, cash: 1e12 };
+    s = { ...s, crewBases: [...s.crewBases, base], pilots: { ...s.pilots, [typeId]: { rated: 60, training: [] } }, slots: { ...s.slots, NRT: 99, HND: 99 } };
+    for (let i = 0; i < n; i++) {
+      let id: string;
+      [s, id] = withListing(s, typeId);
+      s = must(acquireUsed(s, id, 'buy'));
+    }
+    return { ...s, planes: s.planes.map((p) => ({ ...p, base })) };
+  }
+
+  test('only the flag carrier flies abroad before 1986', () => {
+    const s = fleet(1980, 'b747-200b', 4);
+    expect(openRoute(s, 'NRT', 'HNL').ok).toBe(false);
+    expect(openRoute({ ...s, year: 1990 }, 'NRT', 'HNL').ok).toBe(true);
+  });
+  test('foreign airports cannot be linked to each other, and Haneda is domestic-only 1978-2009', () => {
+    const s = fleet(1995, 'b747-400', 4);
+    expect(openRoute(s, 'HNL', 'LAX').ok).toBe(false);
+    expect(openRoute(s, 'HND', 'HNL').ok).toBe(false);
+  });
+  test('ETOPS: a 767 cannot cross the Pacific before twin-engine rules allow it', () => {
+    const t = AIRCRAFT_BY_ID['b767-300er'];
+    expect(canFly(t, 'NRT', 'HNL', 1984).ok).toBe(false);
+    expect(canFly(t, 'NRT', 'HNL', 1990).ok).toBe(true);
+    expect(canFly(AIRCRAFT_BY_ID['b747-400'], 'NRT', 'HNL', 1990).ok).toBe(true);
+  });
+  test('long-haul planes fly rotations that cross midnight and stay valid', () => {
+    let s = fleet(1995, 'b747-400', 4);
+    s = must(openRoute(s, 'NRT', 'JFK'));
+    for (const p of s.planes) expect(validateRotation(s, p)).toEqual([]);
+    expect(s.planes[0].cycleDays).toBeGreaterThanOrEqual(1);
+    expect(scheduledWeekly(s, s.routes[0].id)).toBeGreaterThan(3);
+    const before = s.cash;
+    s = advanceMonth(s);
+    expect(s.history[0].routes[0].pax).toBeGreaterThan(0);
+    expect(s.cash).not.toBe(before);
+  });
+  test('domestic feeder flights add connecting passengers to an international route', () => {
+    let s = fleet(1995, 'b747-400', 4);
+    s = must(openRoute(s, 'NRT', 'HNL'));
+    const alone = routeMarket(s, s.routes[0]).marketOneWay;
+    s = must(openRoute(s, 'NRT', 'CTS', { skipLicense: true }));
+    const fed = routeMarket(s, s.routes[0]);
+    expect(fed.connecting).toBeGreaterThan(0);
+    expect(fed.marketOneWay).toBeGreaterThan(alone);
+  });
+  test('alliances need international routes and take one Japanese airline', () => {
+    let s = fleet(2001, 'b777-200er', 4);
+    expect(joinAlliance(s, 'SKT').ok).toBe(false);
+    s = must(openRoute(s, 'NRT', 'CDG'));
+    s = must(openRoute(s, 'NRT', 'ICN'));
+    expect(joinAlliance(s, 'ARC').ok).toBe(false); // the domestic major is already in
+    s = must(joinAlliance(s, 'SKT'));
+    const m = routeMarket(s, s.routes[0]);
+    expect(m.partnerIds).toContain('LUM');
+  });
+  test('international fares move with the exchange rate', () => {
+    expect(intlReferenceFare(6000, 1984, 6) / intlReferenceFare(6000, 1988, 6)).toBeGreaterThan(1.1);
   });
 });

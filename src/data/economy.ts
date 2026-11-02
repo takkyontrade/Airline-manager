@@ -67,7 +67,26 @@ const AIR_PROPENSITY: Anchors = [
   [2027, 51],
 ];
 
+// International travel to/from Japan, 2019 = 1 (outbound + inbound, simplified)
+const INTL_ASIA: Anchors = [
+  [1960, 0.008], [1964, 0.015], [1970, 0.05], [1975, 0.1], [1980, 0.17], [1985, 0.25], [1990, 0.42],
+  [2000, 0.52], [2008, 0.62], [2010, 0.62], [2013, 0.7], [2016, 0.88], [2019, 1], [2020, 0.2], [2020.3, 0.03],
+  [2021, 0.02], [2022, 0.08], [2022.8, 0.3], [2023, 0.55], [2024, 0.95], [2027, 1.1],
+];
+const INTL_LONG: Anchors = [
+  [1960, 0.03], [1964, 0.05], [1970, 0.16], [1975, 0.3], [1980, 0.45], [1985, 0.6], [1990, 0.95],
+  [1997, 1.0], [2001, 0.95], [2002, 0.85], [2010, 0.8], [2019, 1], [2020, 0.2], [2020.3, 0.03],
+  [2021, 0.03], [2022, 0.1], [2022.8, 0.3], [2023, 0.6], [2024, 0.85], [2027, 1.0],
+];
+// Real international fare level, 1960 = 1 (IATA cartel fares fell with jumbos and deregulation)
+const INTL_REAL_FARE: Anchors = [
+  [1960, 1], [1970, 0.8], [1980, 0.5], [1990, 0.35], [2000, 0.27], [2010, 0.2], [2019, 0.18], [2027, 0.18],
+];
+
 export const econ = {
+  intlAsia: (t: number) => interp(INTL_ASIA, t),
+  intlLong: (t: number) => interp(INTL_LONG, t),
+  intlRealFare: (t: number) => interp(INTL_REAL_FARE, t),
   jpCpi: (t: number) => interp(JP_CPI, t),
   jpWage: (t: number) => interp(JP_WAGE, t),
   usCpi: (t: number) => interp(US_CPI, t),

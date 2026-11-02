@@ -4,6 +4,8 @@ import { AIRCRAFT_BY_ID } from '../data/aircraft';
 import {
   closeRoute, flyablePlanes, formatYen, planeAge, planeType, planesOnRoute,
   routeMarket, setMaintLevel, setRoute, type Result,
+  addCodeshare, allianceEligibility, ALLIANCE_FEE_MONTHLY, CODESHARE_FEE_MONTHLY, codeshareEligibility,
+  joinAlliance, leaveAlliance, removeCodeshare,
 } from '../engine/sim';
 import { OPS_LEVELS, POLICY_LABEL, POLICY_LEVEL, scheduledWeekly, validateRotation } from '../engine/schedule';
 import {
@@ -14,13 +16,15 @@ import {
 import { creditLimit, currentLoanRate, debt, fleetValue, LOAN_TERMS, monthlyPayment, repayLoan, takeLoan } from '../engine/finance';
 import { hirePilots, pilotsRequired, pool, relevantTypes, traineeCount, trainPilots } from '../engine/staff';
 import {
-  canFly, HEAVY_CHECK_HOURS, heavyCheckCost, HIRE_LIMIT_PER_MONTH, hireCost, MAINT_LEVELS,
+  canFly, etopsMinutes, HEAVY_CHECK_HOURS, isIntlRoute, heavyCheckCost, HIRE_LIMIT_PER_MONTH, hireCost, MAINT_LEVELS,
   newPriceYen, pilotWage, routeDistance, TRAINING_MONTHS, trainingCost,
 } from '../engine/model';
 import type { GameState, MaintLevel, MonthReport, Plane, SchedulePolicy } from '../engine/types';
 import { PlaneSilhouette } from './PlaneSilhouette';
 import { fareBand, routeLicensing } from '../data/history';
-import { rivalOverview } from '../engine/rivals';
+import { allianceMembers, partners, rivalAlliance, rivalOverview } from '../engine/rivals';
+import { ALLIANCES } from '../data/alliances';
+import { RIVALS, RIVAL_BY_ID } from '../data/rivals';
 
 type Apply = (r: Result) => void;
 
@@ -48,7 +52,7 @@ export function RoutesPanel({ s, apply, onHover }: { s: GameState; apply: Apply;
         return (
           <div key={r.id} className="card" onMouseEnter={() => onHover(r.id)} onMouseLeave={() => onHover(null)}>
             <div className="card-head">
-              <strong>{aptName(r.from)} 〜 {aptName(r.to)}</strong>
+              <strong>{aptName(r.from)} 〜 {aptName(r.to)}{isIntlRoute(r.from, r.to) && <span className="tag intl">国際線</span>}</strong>
               <span className="muted">{num(km)}km</span>
               <button className="danger small" onClick={() => confirm('この路線を廃止しますか？') && apply(closeRoute(s, r.id))}>廃止</button>
             </div>
@@ -84,9 +88,9 @@ export function RoutesPanel({ s, apply, onHover }: { s: GameState; apply: Apply;
               </label>
             </div>
             <div className="muted small-text">
-              市場：月{num(f.marketOneWay * 2)}人 ／ 予想シェア {pct(f.share)} ／ 他社：
+              市場：月{num(f.marketOneWay * 2)}人{f.connecting >= 1 && `（うち乗り継ぎ ${num(f.connecting * 2)}人）`} ／ 予想シェア {pct(f.share)} ／ 他社：
               {f.rivals.length === 0 ? 'なし（独占）' : f.rivals.map((c) => (
-                <span key={c.rival.id} className="rival-chip" style={{ borderColor: c.rival.color }}>{c.rival.name} 週{c.weeklyFreq}往復・{num(f.refFare * c.fareMul)}円</span>
+                <span key={c.rival.id} className="rival-chip" style={{ borderColor: c.rival.color }}>{f.partnerIds.includes(c.rival.id) ? '🤝' : ''}{c.rival.name} 週{c.weeklyFreq}往復・{num(f.refFare * c.fareMul)}円</span>
               ))}
             </div>
             {res && (
@@ -209,11 +213,13 @@ export function MarketPanel({ s, apply }: { s: GameState; apply: Apply }) {
   );
 }
 
-function Specs({ typeId }: { typeId: string }) {
+function Specs({ typeId, year }: { typeId: string; year?: number }) {
   const t = AIRCRAFT_BY_ID[typeId];
+  const et = year !== undefined ? etopsMinutes(t, year) : 999;
   return (
     <div className="small-text muted">
       {t.seats}席 ／ 航続{num(t.rangeKm)}km ／ 巡航{t.speedKmh}km/h ／ 必要滑走路{num(t.minRunwayM)}m ／ パイロット{t.cockpitCrew}名・客室{t.cabinCrew}名
+      {et < 999 && ` ／ 洋上飛行（ETOPS）${et}分`}
     </div>
   );
 }
@@ -243,7 +249,7 @@ function NewOrders({ s, apply }: { s: GameState; apply: Apply }) {
                 <span className="muted">{t.maker}</span>
                 <span className="tag">納期 約{lead}か月</span>
               </div>
-              <Specs typeId={t.id} />
+              <Specs year={s.year} typeId={t.id} />
               <div className="row">
                 <button onClick={() => order('buy')}>購入 {formatYen(price)}</button>
                 <button className="secondary" onClick={() => order('operating')}>リース 月{formatYen(price * operatingLeaseRate(years, false))}</button>
@@ -286,7 +292,7 @@ function UsedMarket({ s, apply }: { s: GameState; apply: Apply }) {
                 <span className="tag">{l.builtYear}年製</span>
                 <span className="muted small-text">状態 <Meter v={l.condition} /> {l.condition} ／ {num(l.totalHours)}h ／ 掲載〜{ymLabel(l.expiresYM)}</span>
               </div>
-              <Specs typeId={t.id} />
+              <Specs year={s.year} typeId={t.id} />
               <div className="row">
                 <button onClick={() => apply(acquireUsed(s, l.id, 'buy'))}>購入 {formatYen(l.priceYen)}</button>
                 <button className="secondary" onClick={() => apply(acquireUsed(s, l.id, 'operating', years))}>リース 月{formatYen(l.priceYen * operatingLeaseRate(years, true))}</button>
@@ -472,10 +478,12 @@ export function NewsPanel({ s }: { s: GameState }) {
 
 export { nowYM };
 
-const ROLE_LABEL: Record<string, string> = { flag: 'ナショナルフラッグ', major: '大手', local: 'ローカル線', okinawa: '沖縄', entrant: '新規参入', lcc: 'LCC' };
+const ROLE_LABEL: Record<string, string> = { flag: 'ナショナルフラッグ', major: '大手', local: 'ローカル線', okinawa: '沖縄', entrant: '新規参入', lcc: 'LCC', foreign: '海外' };
 
-export function RivalsPanel({ s }: { s: GameState }) {
+export function RivalsPanel({ s, apply }: { s: GameState; apply: Apply }) {
   const list = rivalOverview(s);
+  const ptn = partners(s);
+  const foreign = RIVALS.filter((r) => r.role === 'foreign' && s.year >= r.from);
   const band = fareBand(s.year);
   return (
     <div>
@@ -483,13 +491,48 @@ export function RivalsPanel({ s }: { s: GameState }) {
       <p className="small-text">{routeLicensing(s.year).label}</p>
       <p className="small-text">{band ? `運賃は認可制で、相場の${Math.round(band[0] * 100)}〜${Math.round(band[1] * 100)}%の範囲でしか決められません。` : '運賃は自由に決められます。'}</p>
       <p className="small-text muted">免許が必要な時代でも、ローカル線や他社が飛んでいない路線は開設できます。幹線に入るには実績（評判と機材）が必要です。</p>
+      <h3>アライアンス・提携</h3>
+      {s.year < 1990 && <p className="small-text muted">海外の航空会社との提携（コードシェア）は1990年から、航空連合（アライアンス）は1997年から始まります。</p>}
+      {s.year >= 1990 && (
+        <div className="list">
+          {ALLIANCES.filter((a) => s.year >= a.from - 1).map((a) => {
+            const e = allianceEligibility(s, a.id);
+            const members = allianceMembers(s, a.id);
+            return (
+              <div key={a.id} className="card" style={{ borderLeft: `4px solid ${a.color}` }}>
+                <div className="card-head">
+                  <strong>{a.name}</strong>
+                  {s.alliance === a.id
+                    ? <button className="small danger" onClick={() => confirm('脱退すると評判が下がります。よろしいですか？') && apply(leaveAlliance(s))}>脱退</button>
+                    : <button className="small" disabled={!e.ok} title={e.reason} onClick={() => apply(joinAlliance(s, a.id))}>加盟する</button>}
+                </div>
+                <div className="small-text muted">加盟社：{members.length ? members.map((id) => RIVAL_BY_ID[id].name).join('、') : `${a.from}年発足`}</div>
+                {s.alliance !== a.id && !e.ok && <div className="small-text muted">{e.reason}</div>}
+              </div>
+            );
+          })}
+          <p className="small-text muted">加盟すると、加盟社と競合する国際線で客を奪い合わなくなり、相手国側からの乗り継ぎ客も増えます。会費は月{formatYen(ALLIANCE_FEE_MONTHLY)}〜。</p>
+          <div className="small-text">
+            個別のコードシェア（3社まで、月{formatYen(CODESHARE_FEE_MONTHLY)}〜）：
+            {(s.codeshares ?? []).map((id) => (
+              <span key={id} className="chip">{RIVAL_BY_ID[id].name}<button className="link" onClick={() => apply(removeCodeshare(s, id))}>解消</button></span>
+            ))}
+            <select value="" onChange={(e) => e.target.value && apply(addCodeshare(s, e.target.value))}>
+              <option value="">＋ 提携先を選ぶ</option>
+              {foreign.filter((r) => !ptn.has(r.id)).map((r) => (
+                <option key={r.id} value={r.id} disabled={!codeshareEligibility(s, r.id).ok}>{r.name}（{r.country}）{rivalAlliance(s, r.id) ? ' ※連合加盟社' : ''}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
       <h3>ライバル会社</h3>
       <div className="list">
         {list.map((o) => (
           <div key={o.rival.id} className="card" style={{ borderLeft: `4px solid ${o.rival.color}` }}>
             <div className="card-head">
-              <strong>{o.rival.name}</strong>
-              <span className="muted small-text">{ROLE_LABEL[o.rival.role]}</span>
+              <strong>{ptn.has(o.rival.id) ? '🤝 ' : ''}{o.rival.name}</strong>
+              <span className="muted small-text">{ROLE_LABEL[o.rival.role]}{o.rival.country ? `（${o.rival.country}）` : ''}</span>
               <span className="small-text">{o.routes}路線・週{num(o.weekly)}往復</span>
             </div>
             <div className="small-text muted">主な路線：{o.top.join('、')}</div>
