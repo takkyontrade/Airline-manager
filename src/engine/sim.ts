@@ -9,8 +9,8 @@ import { econ, yearFrac } from '../data/economy';
 import {
   ADMIN_SHARE, blockHours, cabinCostMonthly, flightCost, fuelFactor, groundCostPerPax,
   HEAVY_CHECK_HOURS, MAINT_LEVELS, maintAgeFactor,
-  accidentRatePerFlight, cargoDemandT, cargoHandlingPerKg, cargoReferenceRate, MINOR_PER_ACCIDENT, riskFactor, SERIOUS_PER_ACCIDENT,
-  marketDemand, intlDemand, intlGatewayShare, isIntlRoute, overheadMonthly, pilotWage, routeReferenceFare, routeDistance, SALES_COMMISSION,
+  accidentRatePerFlight, cargoDemandT, flownKm, TECH_STOPS, cargoHandlingPerKg, cargoReferenceRate, MINOR_PER_ACCIDENT, riskFactor, SERIOUS_PER_ACCIDENT,
+  marketDemand, intlDemand, intlGatewayShare, isIntlRoute, overheadMonthly, pilotWage, routeReferenceFare, SALES_COMMISSION,
 } from './model';
 import {
   heavyCheckDue, heavyCheckOverdue, nowYM, planeValue, planeAge, planeType, refreshUsedMarket, startHeavyCheck, ymLabel,
@@ -163,15 +163,21 @@ export function closeRoute(s: GameState, routeId: string): Result {
   }, `${AIRPORT_BY_CODE[r.from].name}〜${AIRPORT_BY_CODE[r.to].name}線を廃止しました。`)));
 }
 
-export type RoutePatch = Partial<{ fareYen: number; targetWeekly: number; typeId: string | null; policy: SchedulePolicy; cargoRateYen: number; cabin: CabinLayout }>;
+export type RoutePatch = Partial<{ fareYen: number; targetWeekly: number; typeId: string | null; policy: SchedulePolicy; cargoRateYen: number; cabin: CabinLayout; via: string | null }>;
 
 export function setRoute(s: GameState, routeId: string, patch: RoutePatch): Result {
   const r = s.routes.find((x) => x.id === routeId);
   if (!r) return fail('路線が見つかりません');
-  const next = { ...r, ...patch };
+  const { via: _via, ...rest } = patch;
+  const next: Route = { ...r, ...rest };
   next.targetWeekly = Math.max(0, Math.min(140, Math.round(next.targetWeekly)));
   next.fareYen = Math.max(100, Math.round(next.fareYen / 10) * 10);
   if (next.cargoRateYen !== undefined) next.cargoRateYen = Math.max(1, Math.round(next.cargoRateYen));
+  if (patch.via !== undefined) {
+    if (patch.via === null || patch.via === '') delete next.via;
+    else if (!TECH_STOPS.includes(patch.via) || patch.via === r.from || patch.via === r.to || !isIntlRoute(r.from, r.to)) return fail('経由地にできない空港です');
+    else next.via = patch.via;
+  }
   const band = fareBand(s.year);
   if (band && patch.fareYen !== undefined) {
     const ref = routeReferenceFare(r.from, r.to, s.year, s.month);
@@ -180,7 +186,7 @@ export function setRoute(s: GameState, routeId: string, patch: RoutePatch): Resu
   let s2: GameState = { ...s, routes: s.routes.map((x) => (x.id === routeId ? next : x)) };
   if (patch.cabin) s2 = noteCabin(s2, patch.cabin);
   // fares don't change the timetable
-  const scheduleChanged = patch.targetWeekly !== undefined || patch.typeId !== undefined || patch.policy !== undefined;
+  const scheduleChanged = patch.targetWeekly !== undefined || patch.typeId !== undefined || patch.policy !== undefined || patch.via !== undefined;
   return ok(scheduleChanged ? autoSchedule(s2) : s2);
 }
 
@@ -269,7 +275,9 @@ export function routeMarket(s: GameState, route: Route, fly = flyablePlanes(s)):
   const scare = (s.safety?.scareUntilYM ?? -1) >= nowYM(s) ? 0.8 : 1;
   const cabinF = 1 + (route.cabin === 'three' ? 0.08 : route.cabin === 'two' ? 0.05 : 0) * cabinAcceptance(s, route.cabin);
   const liveryF = liveryBonus(s, wk.legs.map((l) => l.plane.id));
-  const aUs = effFreq > 0 ? effFreq ** 0.8 * priceRatio ** -2 * routeComfort(wk.legs) * repF * otpF * scare * cabinF * liveryF : 0;
+  // passengers prefer nonstop flights
+  const stopF = route.via ? 0.85 : 1;
+  const aUs = effFreq > 0 ? effFreq ** 0.8 * priceRatio ** -2 * routeComfort(wk.legs) * repF * otpF * scare * cabinF * liveryF * stopF : 0;
   let aRivals = 0;
   let rivalPriceSum = 0;
   let rivalFreq = 0;
@@ -435,7 +443,7 @@ export function advanceMonth(s0: GameState): GameState {
   for (const route of s.routes) {
     const wk = routeWeekly(s, route, fly);
     const f = routeMarket(s, route, fly);
-    const km = routeDistance(route.from, route.to);
+    const km = flownKm(route.from, route.to, s.year, route.via);
     let flights = 0, seats = 0, cancelled = 0, onTime = 0, cost = 0;
     for (const { plane, leg, perWeek } of wk.legs) {
       const t = planeType(plane);
@@ -449,6 +457,8 @@ export function advanceMonth(s0: GameState): GameState {
       onTime += st && st.flights ? (st.onTime / st.flights) * n : n;
       delayedFlights += st && st.flights ? (st.flights - st.onTime - st.cancelled) / st.flights * n : 0;
       const c = flightCost(t, km, s.year, s.month, isIntlRoute(route.from, route.to));
+      // a technical stop means an extra landing
+      if (route.via) c.airport *= 1.5;
       const age = planeAge(plane, s.year);
       const fuel = c.fuel * fuelFactor(age, plane.condition) * flown;
       const wet = plane.lease?.kind === 'wet';
@@ -457,7 +467,7 @@ export function advanceMonth(s0: GameState): GameState {
       costs.maintenance += maint;
       costs.airport += c.airport * flown;
       cost += fuel + maint + c.airport * flown;
-      hours[plane.id] = (hours[plane.id] ?? 0) + (legMinutes(plane, route) / 60) * flown;
+      hours[plane.id] = (hours[plane.id] ?? 0) + (legMinutes(plane, route, s.year) / 60) * flown;
       planeFlights[plane.id] = (planeFlights[plane.id] ?? 0) + flown;
     }
     const want = f.marketOneWay * f.share * (0.93 + r() * 0.14) * 2;

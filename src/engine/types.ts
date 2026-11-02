@@ -80,6 +80,8 @@ export interface Route {
   cargoRateYen?: number;
   /** cabin layout: economy only, two classes, or three classes */
   cabin?: CabinLayout;
+  /** technical (refuelling) stop, e.g. Anchorage */
+  via?: string;
 }
 
 export type CabinLayout = 'mono' | 'two' | 'three';

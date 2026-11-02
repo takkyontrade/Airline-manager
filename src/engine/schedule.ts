@@ -2,7 +2,7 @@
 // and the delay simulation that produces on-time performance.
 import { AIRPORT_BY_CODE, isForeign } from '../data/airports';
 import { econ, yearFrac } from '../data/economy';
-import { blockHours, canFly, ISLANDS, routeDistance, turnaroundHours } from './model';
+import { canFly, ISLANDS, routeBlockHours, routeDistance, turnaroundHours } from './model';
 import { planeType } from './fleet';
 import type { GameState, Leg, Plane, Route, SchedulePolicy } from './types';
 import { fail, ok, rng, type Result } from './util';
@@ -70,8 +70,8 @@ function weather(code: string, month: number): number {
 export const legFrom = (r: Route, l: Leg) => (l.dir === 0 ? r.from : r.to);
 export const legTo = (r: Route, l: Leg) => (l.dir === 0 ? r.to : r.from);
 
-export function legMinutes(p: Plane, r: Route): number {
-  return Math.round(blockHours(planeType(p), routeDistance(r.from, r.to)) * 60);
+export function legMinutes(p: Plane, r: Route, year: number): number {
+  return Math.round(routeBlockHours(planeType(p), r.from, r.to, year, r.via) * 60);
 }
 export const minTurnMin = (p: Plane) => Math.round(turnaroundHours(planeType(p)) * 60);
 
@@ -82,7 +82,7 @@ export function legViews(s: GameState, p: Plane): LegView[] {
   for (const leg of [...p.schedule].sort((a, b) => a.dep - b.dep)) {
     const route = s.routes.find((r) => r.id === leg.routeId);
     if (!route) continue;
-    out.push({ leg, route, from: legFrom(route, leg), to: legTo(route, leg), dep: leg.dep, arr: leg.dep + legMinutes(p, route) });
+    out.push({ leg, route, from: legFrom(route, leg), to: legTo(route, leg), dep: leg.dep, arr: leg.dep + legMinutes(p, route, s.year) });
   }
   return out;
 }
@@ -109,7 +109,7 @@ export function validateRotation(s: GameState, p: Plane, legs = p.schedule, base
       if (!inHours(v.from, s.year, v.dep)) errs.push(`${AIRPORT_BY_CODE[v.from].name}の運用時間外に出発します`);
       if (!inHours(v.to, s.year, v.arr)) errs.push(`${AIRPORT_BY_CODE[v.to].name}の運用時間外に到着します`);
     }
-    const check = canFly(planeType(p), v.route.from, v.route.to, s.year);
+    const check = canFly(planeType(p), v.route.from, v.route.to, s.year, v.route.via);
     if (!check.ok) errs.push(check.reason);
     at = v.to;
     ready = v.arr + minTurnMin(p);
@@ -248,18 +248,18 @@ export function autoSchedule(s: GameState): GameState {
       const days = perWeek >= 7 ? DAILY : spreadDays(perWeek);
       let placed = false;
       // if no plane is based at either end, move an idle plane there
-      if (!planes.some((p) => (p.base === r.from || p.base === r.to) && suits(p, r) && (!r.typeId || p.typeId === r.typeId) && canFly(planeType(p), r.from, r.to, s.year).ok)) {
-        const idle = planes.find((p) => p.schedule.length === 0 && suits(p, r) && (!r.typeId || p.typeId === r.typeId) && canFly(planeType(p), r.from, r.to, s.year).ok);
+      if (!planes.some((p) => (p.base === r.from || p.base === r.to) && suits(p, r) && (!r.typeId || p.typeId === r.typeId) && canFly(planeType(p), r.from, r.to, s.year, r.via).ok)) {
+        const idle = planes.find((p) => p.schedule.length === 0 && suits(p, r) && (!r.typeId || p.typeId === r.typeId) && canFly(planeType(p), r.from, r.to, s.year, r.via).ok);
         if (idle) idle.base = isForeign(r.from) ? r.to : isForeign(r.to) ? r.from : s.crewBases.includes(r.to) ? r.to : r.from;
       }
       for (const p of planes) {
         if (!suits(p, r)) continue;
         if (r.typeId && p.typeId !== r.typeId) continue;
-        if (!canFly(planeType(p), r.from, r.to, s.year).ok) continue;
+        if (!canFly(planeType(p), r.from, r.to, s.year, r.via).ok) continue;
         if (p.base !== r.from && p.base !== r.to) continue;
         const outDir: 0 | 1 = p.base === r.from ? 0 : 1;
         const away = outDir === 0 ? r.to : r.from;
-        const block = legMinutes(p, r);
+        const block = legMinutes(p, r, s.year);
         const turn = minTurnMin(p) + s.bufferMin;
         const [openB, closeB] = airportHours(p.base, s.year);
         const [openA, closeA] = airportHours(away, s.year);
@@ -315,7 +315,7 @@ export function autoSchedule(s: GameState): GameState {
  */
 function longHaulCycle(s: GameState, p: Plane, r: Route, outDir: 0 | 1, turn: number): { legs: Leg[]; days: number } | null {
   const away = outDir === 0 ? r.to : r.from;
-  const block = legMinutes(p, r);
+  const block = legMinutes(p, r, s.year);
   const [openB] = airportHours(p.base, s.year);
   // evening departures suit long-haul best; try a few departure times
   for (const dep0 of [1080, 1200, 660, 780, 900, openB]) {

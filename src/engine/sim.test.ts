@@ -371,3 +371,23 @@ describe('cabins and fan service', () => {
     expect(farewellFlight(s, 'dc3').ok).toBe(false);
   });
 });
+
+describe('technical stops and the Cold War detour', () => {
+  test('in the 1960s Europe needs a stop in Anchorage', () => {
+    const t = AIRCRAFT_BY_ID['dc8'];
+    expect(canFly(t, 'HND', 'LHR', 1965).ok).toBe(false);
+    expect(canFly(t, 'HND', 'LHR', 1965, 'ANC').ok).toBe(true);
+    expect(routeDistance('HND', 'LHR')).toBeLessThan(10000);
+  });
+  test('a route can be given a refuelling stop, which lengthens the flight', () => {
+    let s: GameState = { ...newGame('経由', 'NRT', 9), year: 1995, reputation: 70, cash: 1e12, slots: { HND: 99, ITM: 99, NRT: 99 } };
+    s = { ...s, pilots: { 'b747-400': { rated: 60, training: [] } } };
+    for (let i = 0; i < 4; i++) { let id: string; [s, id] = withListing(s, 'b747-400f'); s = must(acquireUsed(s, id, 'buy')); }
+    s = { ...s, planes: s.planes.map((p) => ({ ...p, base: 'NRT' })) };
+    s = must(openRoute(s, 'NRT', 'ORD', { kind: 'cargo' }));
+    expect(scheduledWeekly(s, s.routes[0].id)).toBe(0); // too far nonstop for a 747-400F
+    s = must(setRoute(s, s.routes[0].id, { via: 'ANC' }));
+    expect(scheduledWeekly(s, s.routes[0].id)).toBeGreaterThan(0);
+    expect(setRoute(s, s.routes[0].id, { via: 'HND' }).ok).toBe(false);
+  });
+});

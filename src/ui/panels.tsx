@@ -16,7 +16,7 @@ import {
 import { creditLimit, currentLoanRate, debt, fleetValue, LOAN_TERMS, monthlyPayment, repayLoan, takeLoan } from '../engine/finance';
 import { hirePilots, pilotsRequired, pool, relevantTypes, traineeCount, trainPilots } from '../engine/staff';
 import {
-  canFly, cargoReferenceRate, CONVERSION_MONTHS, conversionCostYen, etopsMinutes, HEAVY_CHECK_HOURS, isIntlRoute, heavyCheckCost, HIRE_LIMIT_PER_MONTH, hireCost, MAINT_LEVELS,
+  canFly, cargoReferenceRate, TECH_STOPS, CONVERSION_MONTHS, conversionCostYen, etopsMinutes, HEAVY_CHECK_HOURS, isIntlRoute, heavyCheckCost, HIRE_LIMIT_PER_MONTH, hireCost, MAINT_LEVELS,
   newPriceYen, pilotWage, routeDistance, TRAINING_MONTHS, trainingCost,
 } from '../engine/model';
 import type { CabinLayout, GameState, MaintLevel, MonthReport, Plane, SchedulePolicy } from '../engine/types';
@@ -85,7 +85,7 @@ export function RoutesPanel({ s, apply, onHover }: { s: GameState; apply: Apply;
                 使う機種
                 <select value={r.typeId ?? ''} onChange={(e) => apply(setRoute(s, r.id, { typeId: e.target.value || null }))}>
                   <option value="">おまかせ</option>
-                  {ownedTypes.filter((id) => !!AIRCRAFT_BY_ID[id].freighter === cargoRoute).map((id) => <option key={id} value={id} disabled={!canFly(AIRCRAFT_BY_ID[id], r.from, r.to, s.year).ok}>{AIRCRAFT_BY_ID[id].name}</option>)}
+                  {ownedTypes.filter((id) => !!AIRCRAFT_BY_ID[id].freighter === cargoRoute).map((id) => <option key={id} value={id} disabled={!canFly(AIRCRAFT_BY_ID[id], r.from, r.to, s.year, r.via).ok}>{AIRCRAFT_BY_ID[id].name}</option>)}
                 </select>
               </label>
               <label>
@@ -98,6 +98,16 @@ export function RoutesPanel({ s, apply, onHover }: { s: GameState; apply: Apply;
                   ))}
                 </select>
               </label>
+              {isIntlRoute(r.from, r.to) && (
+                <label>
+                  経由地（給油）
+                  <select value={r.via ?? ''} onChange={(e) => apply(setRoute(s, r.id, { via: e.target.value || null }))}>
+                    <option value="">直行</option>
+                    {TECH_STOPS.filter((c) => c !== r.from && c !== r.to).map((c) => <option key={c} value={c}>{aptName(c)}経由</option>)}
+                  </select>
+                  <span className="muted">航続距離が足りない機体でも飛べますが、時間がかかり直行便より選ばれにくくなります</span>
+                </label>
+              )}
               {!cargoRoute && (
                 <label>
                   座席クラス

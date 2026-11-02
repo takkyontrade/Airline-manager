@@ -61,17 +61,46 @@ export function etopsMinutes(t: AircraftType, year: number): number {
 
 export type RouteCheck = { ok: true } | { ok: false; reason: string };
 
-export function canFly(t: AircraftType, from: string, to: string, year: number): RouteCheck {
+/** Airports used as technical (refuelling) stops on long routes */
+export const TECH_STOPS = ['ANC', 'HNL', 'GUM'];
+
+/**
+ * Detour factor: before the end of the Cold War, flights to Europe could not
+ * cross Soviet airspace freely and flew long way round.
+ */
+export function detour(from: string, to: string, year: number): number {
+  const eu = AIRPORT_BY_CODE[from].region === 'ヨーロッパ' || AIRPORT_BY_CODE[to].region === 'ヨーロッパ';
+  if (!eu || year >= 1991) return 1;
+  return year < 1970 ? 1.35 : 1.15;
+}
+
+/** Distances of the legs actually flown (one leg, or two with a technical stop) */
+export function legsKm(from: string, to: string, year: number, via?: string): number[] {
+  if (via) return [routeDistance(from, via), routeDistance(via, to)];
+  return [routeDistance(from, to) * detour(from, to, year)];
+}
+
+/** Total distance flown */
+export const flownKm = (from: string, to: string, year: number, via?: string) => legsKm(from, to, year, via).reduce((a, b) => a + b, 0);
+
+/** Block time including any technical stop (1 hour on the ground) */
+export function routeBlockHours(t: AircraftType, from: string, to: string, year: number, via?: string): number {
+  return legsKm(from, to, year, via).reduce((n, km) => n + blockHours(t, km), 0) + (via ? 1 : 0);
+}
+
+export function canFly(t: AircraftType, from: string, to: string, year: number, via?: string): RouteCheck {
   const a = AIRPORT_BY_CODE[from];
   const b = AIRPORT_BY_CODE[to];
-  const km = distanceKm(a, b);
-  if (km > t.rangeKm) return { ok: false, reason: `航続距離が足りません（${Math.round(km)}km / ${t.rangeKm}km）` };
-  const need = Math.max(a.etops ?? 0, b.etops ?? 0);
+  const legs = legsKm(from, to, year, via);
+  const km = Math.max(...legs);
+  if (km > t.rangeKm) return { ok: false, reason: `航続距離が足りません（${Math.round(km)}km / ${t.rangeKm}km）${via ? '' : detour(from, to, year) > 1 ? '。ソ連上空を避けた遠回りの距離です。アンカレッジ経由も検討を' : ''}` };
+  const stops = via ? [a, b, AIRPORT_BY_CODE[via]] : [a, b];
+  const need = Math.max(...stops.map((x) => x.etops ?? 0));
   if (need > 0) {
     const have = etopsMinutes(t, year);
     if (have < need) return { ok: false, reason: `洋上飛行の制限（ETOPS）：${t.name}は${year}年時点で${have >= 999 ? '' : `${have}分`}までしか認められていません（必要${need}分）` };
   }
-  for (const ap of [a, b]) {
+  for (const ap of stops) {
     const rw = runwayAt(ap, year);
     if (rw < t.minRunwayM)
       return { ok: false, reason: `${ap.name}の滑走路が短すぎます（${rw}m / 必要${t.minRunwayM}m）` };

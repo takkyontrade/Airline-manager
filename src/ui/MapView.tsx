@@ -64,12 +64,14 @@ export function MapView({ state, selected, onAirportClick, highlightRoute }: Pro
     const mx = (x1 + x2) / 2 - (y2 - y1) * 0.12;
     const my = (y1 + y2) / 2 + (x2 - x1) * 0.12;
     const weekly = scheduledWeekly(state, r.id);
+    const v = r.via ? AIRPORTS.find((x) => x.code === r.via) : undefined;
+    const via = v ? pos(v.lon, v.lat) : null;
     const active = weekly > 0;
     const hl = r.id === highlightRoute;
     return (
       <path
         key={r.id}
-        d={`M${x1},${y1} Q${mx},${my} ${x2},${y2}`}
+        d={via ? `M${x1},${y1} L${via[0]},${via[1]} L${x2},${y2}` : `M${x1},${y1} Q${mx},${my} ${x2},${y2}`}
         className={`route ${active ? 'active' : 'idle'} ${hl ? 'hl' : ''}`}
         strokeWidth={(hl ? 3 : 1.6 + Math.min(3, weekly / 15)) / k}
       />
