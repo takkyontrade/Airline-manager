@@ -10,6 +10,7 @@ import { FinancePanel, FleetPanel, MarketPanel, NewsPanel, RivalsPanel, RoutesPa
 import { SchedulePanel } from './SchedulePanel';
 import { BrandPanel } from './BrandPanel';
 import { OpsRoom } from './OpsRoom';
+import { CloudPanel } from './CloudPanel';
 
 type Tab = 'routes' | 'schedule' | 'fleet' | 'market' | 'staff' | 'finance' | 'rivals' | 'brand' | 'news';
 const TABS: [Tab, string][] = [
@@ -33,8 +34,10 @@ function NewGame({ onStart }: { onStart: (s: GameState) => void }) {
   const [base, setBase] = useState(airports[0].code);
   const start = START_OPTIONS.find((o) => o.year === year)!;
   const fileRef = useRef<HTMLInputElement>(null);
+  const [cloud, setCloud] = useState(false);
   return (
     <div className="newgame">
+      {cloud && <CloudPanel state={null} onLoad={onStart} onClose={() => setCloud(false)} flash={(m) => alert(m)} />}
       <h1>航空会社運営ゲーム（仮）</h1>
       <p className="muted">日本で小さな航空会社を立ち上げ、空の歴史とともに育てていきましょう。</p>
       <label>
@@ -66,6 +69,7 @@ function NewGame({ onStart }: { onStart: (s: GameState) => void }) {
       <div className="row">
         <button onClick={() => onStart(newGame(name || '新日本航空', base, Date.now(), { startYear: year, difficulty }))}>会社を設立する</button>
         <button className="secondary" onClick={() => fileRef.current?.click()}>セーブファイルを読み込む</button>
+        <button className="secondary" onClick={() => setCloud(true)}>GitHubから読み込む</button>
         <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={async (e) => {
           const f = e.target.files?.[0];
           if (!f) return;
@@ -83,6 +87,7 @@ function Game({ state, setState }: { state: GameState; setState: (s: GameState |
   const [routeKind, setRouteKind] = useState<'pax' | 'cargo'>('pax');
   const [view, setView] = useState<'map' | 'ops'>('map');
   const [slotsOpen, setSlotsOpen] = useState(false);
+  const [cloudOpen, setCloudOpen] = useState(false);
   const [hoverRoute, setHoverRoute] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -145,6 +150,7 @@ function Game({ state, setState }: { state: GameState; setState: (s: GameState |
             </div>
           )}
         </div>
+        <button className="secondary small" onClick={() => setCloudOpen(true)}>GitHub保存</button>
         <button className="secondary small" onClick={() => downloadSave(state)}>書き出し</button>
         <button className="secondary small" onClick={() => fileRef.current?.click()}>読み込み</button>
         <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={async (e) => {
@@ -191,6 +197,7 @@ function Game({ state, setState }: { state: GameState; setState: (s: GameState |
           </div>
         </aside>
       </main>
+      {cloudOpen && <CloudPanel state={state} onLoad={setState} onClose={() => setCloudOpen(false)} flash={flash} />}
       {toast && <div className="toast">{toast}</div>}
     </div>
   );

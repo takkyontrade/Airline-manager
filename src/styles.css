@@ -143,3 +143,16 @@ input[type=color] { width: 48px; height: 28px; padding: 0; border: 1px solid var
 .ops-fleet { display: flex; flex-wrap: wrap; gap: 8px; }
 .ops-plane { background: #0c1424; border: 1px solid #1c2a44; border-radius: 6px; padding: 6px; width: 110px; text-align: center; }
 .ops-plane.off { opacity: .55; }
+
+.circuit-form { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin: 6px 0; }
+.circuit-form button { grid-column: span 2; }
+.circuit-row { border-top: 1px solid var(--line); padding-top: 6px; margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+.circuit-row label.inline { display: flex; align-items: center; gap: 4px; }
+.circuit-row label.inline input { width: 56px; }
+.warn { color: #e0a33a; }
+
+.modal-back { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; z-index: 50; }
+.modal { background: var(--panel, #121c2e); color: inherit; border: 1px solid var(--line); border-radius: 10px; padding: 16px; width: min(560px, calc(100vw - 32px)); max-height: 85vh; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+.modal ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.modal a { color: #6db3ff; }
+.modal h4 { margin: 8px 0 0; }
