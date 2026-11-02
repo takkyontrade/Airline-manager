@@ -1,0 +1,37 @@
+{
+  "name": "airline-manager",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest run src",
+    "balance": "vitest run scripts",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "d3-geo": "^3.1.1",
+    "d3-selection": "^3.0.0",
+    "d3-zoom": "^3.0.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "topojson-client": "^3.1.0",
+    "world-atlas": "^2.0.2"
+  },
+  "devDependencies": {
+    "@types/d3-geo": "^3.1.0",
+    "@types/d3-selection": "^3.0.11",
+    "@types/d3-zoom": "^3.0.8",
+    "@types/geojson": "^7946.0.16",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "@types/topojson-client": "^3.1.5",
+    "@types/topojson-specification": "^1.0.5",
+    "@vitejs/plugin-react": "^5.1.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.12",
+    "vitest": "^3.2.4"
+  }
+}
