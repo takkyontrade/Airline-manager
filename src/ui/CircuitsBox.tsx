@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { NumInput } from './NumInput';
 import { AIRPORT_BY_CODE } from '../data/airports';
 import { AIRCRAFT_BY_ID } from '../data/aircraft';
 import { addCircuit, openAirports, removeCircuit, setCircuit, type Result } from '../engine/sim';
@@ -48,7 +49,7 @@ export function CircuitsBox({ s, apply }: { s: GameState; apply: (r: Result) => 
             <div className="row">
               <label className="inline">
                 週
-                <input type="number" min={0} max={70} value={c.targetWeekly} onChange={(e) => apply(setCircuit(s, c.id, { targetWeekly: Number(e.target.value) }))} />
+                <NumInput min={0} max={70} value={c.targetWeekly} onCommit={(v) => apply(setCircuit(s, c.id, { targetWeekly: v }))} />
                 回
               </label>
               <select value={c.typeId ?? ''} onChange={(e) => apply(setCircuit(s, c.id, { typeId: e.target.value || null }))}>

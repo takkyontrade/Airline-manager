@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { NumInput } from './NumInput';
 import { AIRPORT_BY_CODE } from '../data/airports';
 import { AIRCRAFT_BY_ID, conversionsFor } from '../data/aircraft';
 import {
@@ -66,19 +67,19 @@ export function RoutesPanel({ s, apply, onHover }: { s: GameState; apply: Apply;
               {cargoRoute ? (
                 <label>
                   貨物運賃（円/kg）
-                  <input type="number" step={1} value={r.cargoRateYen ?? refRate} onChange={(e) => apply(setRoute(s, r.id, { cargoRateYen: Number(e.target.value) }))} />
+                  <NumInput min={0} value={r.cargoRateYen ?? refRate} onCommit={(v) => apply(setRoute(s, r.id, { cargoRateYen: v }))} />
                   <span className="muted">相場 {num(refRate)}円/kg</span>
                 </label>
               ) : (
                 <label>
                   運賃（片道）
-                  <input type="number" step={100} value={r.fareYen} onChange={(e) => apply(setRoute(s, r.id, { fareYen: Number(e.target.value) }))} />
+                  <NumInput min={0} value={r.fareYen} onCommit={(v) => apply(setRoute(s, r.id, { fareYen: v }))} />
                   <span className="muted">相場 {num(f.refFare)}円{fareBand(s.year) && `（認可運賃：相場の${Math.round(fareBand(s.year)![0] * 100)}〜${Math.round(fareBand(s.year)![1] * 100)}%）`}</span>
                 </label>
               )}
               <label>
                 目標：週の往復便数
-                <input type="number" min={0} value={r.targetWeekly} onChange={(e) => apply(setRoute(s, r.id, { targetWeekly: Number(e.target.value) }))} />
+                <NumInput min={0} value={r.targetWeekly} onCommit={(v) => apply(setRoute(s, r.id, { targetWeekly: v }))} />
                 <span className={sched < r.targetWeekly ? 'neg' : 'muted'}>
                   ダイヤに入ったのは週{sched}往復{sched < r.targetWeekly && '（機材・時間・発着枠が足りません）'}
                 </span>
@@ -393,7 +394,7 @@ export function StaffPanel({ s, apply }: { s: GameState; apply: Apply }) {
                 {orders > 0 && <span className="muted">発注中 {orders}機（1機あたり{t.cockpitCrew * 5}人必要）</span>}
               </div>
               <div className="row">
-                <input type="number" min={1} value={n} style={{ width: 70 }} onChange={(e) => setCount({ ...count, [id]: Math.max(1, Number(e.target.value)) })} />人を
+                <NumInput min={1} value={n} style={{ width: 70 }} onCommit={(v) => setCount({ ...count, [id]: v })} />人を
                 <button className="small" disabled={hiredNow >= HIRE_LIMIT_PER_MONTH} onClick={() => apply(hirePilots(s, id, n))}>
                   経験者採用（{formatYen(hireCost(s.year, s.month) * n)}、今月あと{HIRE_LIMIT_PER_MONTH - hiredNow}人）
                 </button>
@@ -445,7 +446,7 @@ export function FinancePanel({ s, apply }: { s: GameState; apply: Apply }) {
 
       <h3>銀行借入（年利 {(rate * 100).toFixed(1)}%、借入可能額 {formatYen(limit)}）</h3>
       <div className="row">
-        <input type="number" step={10_000_000} value={amount} style={{ width: 150 }} onChange={(e) => setAmount(Number(e.target.value))} />
+        <NumInput min={0} value={amount} style={{ width: 150 }} onCommit={setAmount} />
         <select value={years} onChange={(e) => setYears(Number(e.target.value))}>
           {LOAN_TERMS.map((y) => <option key={y} value={y}>{y}年返済</option>)}
         </select>
