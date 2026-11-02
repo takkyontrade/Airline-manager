@@ -156,3 +156,35 @@ input[type=color] { width: 48px; height: 28px; padding: 0; border: 1px solid var
 .modal ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
 .modal a { color: #6db3ff; }
 .modal h4 { margin: 8px 0 0; }
+
+/* ---- fit the window exactly (iPad / Safari) ------------------------------
+   100vh on iPad Safari includes the hidden toolbar, which made the page a bit
+   taller than the screen. The page itself never scrolls now; only panels do. */
+html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+#root { height: 100vh; height: 100dvh; overflow: auto; -webkit-overflow-scrolling: touch; }
+.app { height: 100%; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+.map { touch-action: none; -webkit-user-select: none; user-select: none; }
+.panel { overscroll-behavior: contain; }
+header { row-gap: 6px; }
+/* iPad landscape: give the map more room */
+@media (max-width: 1400px) { main { grid-template-columns: minmax(0, 1fr) 460px; } }
+@media (max-width: 1100px) { main { grid-template-columns: minmax(0, 1fr) 400px; } header { gap: 8px; padding: 6px 10px; } header .brand { font-size: 15px; } }
+/* iPad portrait: map on top, panel below */
+@media (max-width: 900px) { main { grid-template-columns: 1fr; grid-template-rows: 40% 60%; } }
+/* touch screens: 16px inputs stop Safari from zooming the page on focus */
+@media (pointer: coarse) {
+  input, select, textarea { font-size: 16px; }
+  .tabs { overflow-x: auto; }
+  .tabs button { flex: 0 0 auto; padding: 10px 10px; }
+}
+.file-buttons { display: flex; align-items: center; gap: 8px; }
+.menu-toggle { display: none; }
+header { position: relative; }
+@media (max-width: 1300px) {
+  .menu-toggle { display: inline-block; }
+  .file-buttons { display: none; position: absolute; right: 10px; top: 100%; z-index: 30; flex-direction: column; align-items: stretch; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px; box-shadow: 0 6px 24px #0008; }
+  .file-buttons.open { display: flex; }
+  .file-buttons .slots-menu { right: 100%; top: 0; }
+  header .muted { font-size: 13px; }
+}
+@media (max-width: 1300px) { .file-buttons .slots-wrap > button { width: 100%; } }

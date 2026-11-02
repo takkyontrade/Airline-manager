@@ -88,6 +88,7 @@ function Game({ state, setState }: { state: GameState; setState: (s: GameState |
   const [view, setView] = useState<'map' | 'ops'>('map');
   const [slotsOpen, setSlotsOpen] = useState(false);
   const [cloudOpen, setCloudOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [hoverRoute, setHoverRoute] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -129,6 +130,8 @@ function Game({ state, setState }: { state: GameState; setState: (s: GameState |
           <button className={view === 'map' ? 'on' : ''} onClick={() => setView('map')}>地図</button>
           <button className={view === 'ops' ? 'on' : ''} onClick={() => setView('ops')}>オペレーションルーム</button>
         </div>
+        <button className="secondary small menu-toggle" onClick={() => setMenuOpen(!menuOpen)}>≡ メニュー</button>
+        <div className={`file-buttons ${menuOpen ? 'open' : ''}`}>
         <div className="slots-wrap">
           <button className="secondary small" onClick={() => setSlotsOpen(!slotsOpen)}>セーブ枠</button>
           {slotsOpen && (
@@ -162,6 +165,7 @@ function Game({ state, setState }: { state: GameState; setState: (s: GameState |
         <button className="secondary small" onClick={() => {
           if (confirm('今のゲームを終了して、最初からやり直しますか？（書き出していないデータは消えます）')) { clearAutosave(); setState(null); }
         }}>新しいゲーム</button>
+        </div>
         <button className="primary" disabled={state.gameOver} onClick={() => setState(advanceMonth(state))}>1か月進める ▶</button>
       </header>
       {state.gameOver && <div className="banner bad">倒産しました。「新しいゲーム」から再挑戦できます。</div>}
