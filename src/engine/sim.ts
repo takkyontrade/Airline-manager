@@ -111,7 +111,7 @@ export function toggleCrewBase(s: GameState, code: string): Result {
   if (code === s.baseAirport) return fail('本社のある拠点は外せません');
   const has = s.crewBases.includes(code);
   const crewBases = has ? s.crewBases.filter((c) => c !== code) : [...s.crewBases, code];
-  return ok(withNews({ ...s, crewBases }, has ? `${AIRPORT_BY_CODE[code].name}の乗員基地を閉鎖しました。` : `${AIRPORT_BY_CODE[code].name}に乗員基地を開設しました。`));
+  return ok(autoSchedule(withNews({ ...s, crewBases }, has ? `${AIRPORT_BY_CODE[code].name}の乗員基地を閉鎖しました。` : `${AIRPORT_BY_CODE[code].name}に乗員基地を開設しました。`)));
 }
 
 // ---- routes -------------------------------------------------------------

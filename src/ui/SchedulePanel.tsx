@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { AIRPORT_BY_CODE } from '../data/airports';
-import { flyablePlanes, formatYen, planeType, setOps, toggleCrewBase, type Result } from '../engine/sim';
+import { flyablePlanes, formatYen, openAirports, planeType, setOps, toggleCrewBase, type Result } from '../engine/sim';
 import {
   airportHours, autoSchedule, DAILY, DAY_NAMES, dayCount, dayTag, hhmm, legViews, OPS_LEVELS, setPlaneBase,
   setPlaneLock, setPlaneSchedule, slotAirports, slotUsage, validateRotation, BASE_COST_MONTHLY,
@@ -50,9 +50,20 @@ export function SchedulePanel({ s, apply }: { s: GameState; apply: Apply }) {
         ))}
         <select value="" onChange={(e) => e.target.value && apply(toggleCrewBase(s, e.target.value))}>
           <option value="">＋ 基地を開設</option>
-          {[...new Set(s.planes.map((p) => p.base))].filter((c) => !s.crewBases.includes(c)).map((c) => (
-            <option key={c} value={c}>{aptName(c)}（機体の拠点）</option>
-          ))}
+          {(() => {
+            const planeBases = new Set(s.planes.map((p) => p.base));
+            const served = new Set(s.routes.flatMap((r) => [r.from, r.to]));
+            const cands = openAirports(s.year).filter((a) => !a.foreign && !s.crewBases.includes(a.code));
+            const group = (label: string, list: typeof cands, note: (c: string) => string) => list.length > 0 && (
+              <optgroup label={label}>
+                {list.map((a) => <option key={a.code} value={a.code}>{a.name}{note(a.code)}</option>)}
+              </optgroup>
+            );
+            return <>
+              {group('就航中の空港', cands.filter((a) => served.has(a.code) || planeBases.has(a.code)), (c) => (planeBases.has(c) ? '（機体の拠点）' : ''))}
+              {group('その他の空港', cands.filter((a) => !served.has(a.code) && !planeBases.has(a.code)).sort((a, b) => b.popM - a.popM), () => '')}
+            </>;
+          })()}
         </select>
       </div>
 
