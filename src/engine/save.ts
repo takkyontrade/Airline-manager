@@ -74,3 +74,39 @@ export function downloadSave(s: GameState): void {
   a.click();
   URL.revokeObjectURL(a.href);
 }
+
+// ---- save slots ------------------------------------------------------------
+
+export const SLOT_COUNT = 3;
+const slotKey = (n: number) => `airline-slot-${n}`;
+
+export interface SlotInfo { slot: number; label: string | null }
+
+export function slotInfo(n: number): SlotInfo {
+  try {
+    const raw = localStorage.getItem(slotKey(n));
+    if (!raw) return { slot: n, label: null };
+    const s = parseSave(raw);
+    return { slot: n, label: s ? `${s.companyName}・${s.year}年${s.month}月` : null };
+  } catch {
+    return { slot: n, label: null };
+  }
+}
+
+export function saveToSlot(n: number, s: GameState): boolean {
+  try {
+    localStorage.setItem(slotKey(n), JSON.stringify(s));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function loadSlot(n: number): GameState | null {
+  try {
+    const raw = localStorage.getItem(slotKey(n));
+    return raw ? parseSave(raw) : null;
+  } catch {
+    return null;
+  }
+}

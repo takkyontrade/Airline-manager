@@ -119,3 +119,27 @@ input[type=range] { width: 100%; }
 .tag.intl { background: #5a3a1a; color: #ffd8a8; }
 .tag.cargo { background: #24452e; color: #b8f0c8; }
 .map-kind { position: absolute; top: 8px; right: 8px; z-index: 2; }
+
+.livery-preview { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin: 8px 0; background: #0b1424; padding: 8px; border-radius: 8px; }
+input[type=color] { width: 48px; height: 28px; padding: 0; border: 1px solid var(--line); background: none; }
+.small-seg button { padding: 4px 10px; font-size: 12px; }
+.slots-wrap { position: relative; }
+.slots-menu { position: absolute; right: 0; top: 34px; z-index: 20; background: var(--panel, #121c2e); border: 1px solid var(--line); border-radius: 8px; padding: 8px; min-width: 340px; box-shadow: 0 6px 24px #0008; }
+.slot-row { display: flex; gap: 6px; align-items: center; padding: 4px 0; }
+.slot-row span { flex: 1; }
+.ops { height: 100%; overflow: auto; background: #05080f; color: #d6e4ff; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+.ops-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
+.kpi { background: #0c1424; border: 1px solid #1c2a44; border-radius: 6px; padding: 8px 10px; }
+.kpi-v { font-size: 22px; font-weight: 700; color: #7fd1ff; font-variant-numeric: tabular-nums; }
+.kpi-l { font-size: 11px; color: #8da2c4; }
+.ops-board { background: #0a0f1a; border: 1px solid #1c2a44; border-radius: 6px; padding: 8px; }
+.ops-title { font-family: ui-monospace, monospace; color: #ffd36b; letter-spacing: .08em; margin-bottom: 6px; }
+.ops-board table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ops-board th { text-align: left; color: #8da2c4; font-weight: 500; border-bottom: 1px solid #1c2a44; padding: 4px; }
+.ops-board td { padding: 3px 4px; border-bottom: 1px solid #111b2c; }
+.ops-board td.ok { color: #5fd3a0; }
+.ops-board td.warn { color: #ffb86b; }
+.mono { font-family: ui-monospace, monospace; }
+.ops-fleet { display: flex; flex-wrap: wrap; gap: 8px; }
+.ops-plane { background: #0c1424; border: 1px solid #1c2a44; border-radius: 6px; padding: 6px; width: 110px; text-align: center; }
+.ops-plane.off { opacity: .55; }

@@ -4,6 +4,10 @@ export interface Livery {
   body: string;
   stripe: string;
   tail: string;
+  logo?: string;
+  logoColor?: string;
+  /** special paint schemes for fan service */
+  special?: 'special' | 'retro';
 }
 
 export const DEFAULT_LIVERY: Livery = { body: '#e9eef5', stripe: '#2f6fd6', tail: '#2f6fd6' };
@@ -40,9 +44,27 @@ export function PlaneSilhouette({ kind, width = 120, livery = DEFAULT_LIVERY }: 
       <path d={tailFin} fill={livery.tail} />
       {kind === 'triJet' && <rect x={x0 - 2} y={top - 6} width={20} height={8} rx={3} fill="#9aa6b5" />}
       {kind === 'wideTri' && <rect x={x0 + 4} y={top - 18} width={22} height={9} rx={4} fill="#9aa6b5" />}
+      {livery.logo && (
+        <text x={x0 + (tTail ? 4 : 6)} y={top - 9} fontSize={9} fontWeight={700} fill={livery.logoColor ?? '#fff'} fontFamily="sans-serif">{livery.logo}</text>
+      )}
       <path d={fuselage} fill={livery.body} />
       {hump && <path d={hump} fill={livery.body} />}
-      <rect x={x0 + 12} y={yc - 1} width={len - 26} height={3.5} fill={livery.stripe} />
+      {livery.special === 'special' ? (
+        // a colourful wrap from nose to tail
+        <>
+          <rect x={x0 + 14} y={top + 2} width={(len - 30) / 3} height={hgt - 4} fill="#ff6b8b" opacity={0.85} />
+          <rect x={x0 + 14 + (len - 30) / 3} y={top + 2} width={(len - 30) / 3} height={hgt - 4} fill="#ffd36b" opacity={0.85} />
+          <rect x={x0 + 14 + (2 * (len - 30)) / 3} y={top + 2} width={(len - 30) / 3} height={hgt - 4} fill="#5fd3a0" opacity={0.85} />
+        </>
+      ) : livery.special === 'retro' ? (
+        // a classic double cheatline through the windows
+        <>
+          <rect x={x0 + 10} y={yc - 4} width={len - 18} height={3} fill={livery.stripe} />
+          <rect x={x0 + 10} y={yc + 1} width={len - 18} height={2} fill={livery.tail} />
+        </>
+      ) : (
+        <rect x={x0 + 12} y={yc - 1} width={len - 26} height={3.5} fill={livery.stripe} />
+      )}
       <path d={`M${wingX},${yc + 2} L${wingX + 40},${yc + 4} L${wingX + 8},${yc + 18} L${wingX - 6},${yc + 18} Z`} fill="#b9c3cf" opacity={0.9} />
       {engines.map((e, i) => (
         <g key={i}>

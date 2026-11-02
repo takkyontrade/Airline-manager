@@ -19,7 +19,9 @@ import {
   canFly, cargoReferenceRate, CONVERSION_MONTHS, conversionCostYen, etopsMinutes, HEAVY_CHECK_HOURS, isIntlRoute, heavyCheckCost, HIRE_LIMIT_PER_MONTH, hireCost, MAINT_LEVELS,
   newPriceYen, pilotWage, routeDistance, TRAINING_MONTHS, trainingCost,
 } from '../engine/model';
-import type { GameState, MaintLevel, MonthReport, Plane, SchedulePolicy } from '../engine/types';
+import type { CabinLayout, GameState, MaintLevel, MonthReport, Plane, SchedulePolicy } from '../engine/types';
+import { CABIN_LABEL, cabinAcceptance, premiumFareMul } from '../engine/brand';
+import { planeLivery } from './BrandPanel';
 import { PlaneSilhouette } from './PlaneSilhouette';
 import { fareBand, routeLicensing } from '../data/history';
 import { allianceMembers, partners, rivalAlliance, rivalOverview } from '../engine/rivals';
@@ -96,6 +98,15 @@ export function RoutesPanel({ s, apply, onHover }: { s: GameState; apply: Apply;
                   ))}
                 </select>
               </label>
+              {!cargoRoute && (
+                <label>
+                  座席クラス
+                  <select value={r.cabin ?? 'mono'} onChange={(e) => apply(setRoute(s, r.id, { cabin: e.target.value as CabinLayout }))}>
+                    {(Object.keys(CABIN_LABEL) as CabinLayout[]).map((k) => <option key={k} value={k}>{CABIN_LABEL[k]}</option>)}
+                  </select>
+                  {(r.cabin ?? 'mono') !== 'mono' && <span className="muted">浸透度 {pct(cabinAcceptance(s, r.cabin))}（上級席は運賃の{premiumFareMul(r).toFixed(1)}倍）</span>}
+                </label>
+              )}
             </div>
             <div className="muted small-text" style={cargoRoute ? { display: 'none' } : undefined}>
               市場：月{num(f.marketOneWay * 2)}人{f.connecting >= 1 && `（うち乗り継ぎ ${num(f.connecting * 2)}人）`} ／ 予想シェア {pct(f.share)} ／ 他社：
@@ -105,7 +116,7 @@ export function RoutesPanel({ s, apply, onHover }: { s: GameState; apply: Apply;
             </div>
             {res && (
               <div className="small-text">
-                先月：{cargoRoute ? '' : <>旅客 {num(res.pax)}人 ／ 搭乗率 {res.seats ? pct(res.pax / res.seats) : '-'} ／ </>}定時率 {pct(res.onTime)}
+                先月：{cargoRoute ? '' : <>旅客 {num(res.pax)}人{(res.premiumPax ?? 0) >= 1 && `（上級席 ${num(res.premiumPax!)}人）`} ／ 搭乗率 {res.seats ? pct(res.pax / res.seats) : '-'} ／ </>}定時率 {pct(res.onTime)}
                 {res.cancelled >= 0.5 && <span className="neg"> ／ 欠航 {Math.round(res.cancelled)}便</span>} ／ 収入 {formatYen(res.revenue)} ／ 運航費 {formatYen(res.cost)}
                 {(res.cargoT ?? 0) >= 0.5 && <span className="muted"> ／ 貨物{cargoRoute ? '' : '（床下）'} {num(res.cargoT!)}t・{formatYen(res.cargoRevenue ?? 0)}（市場 月{num(res.cargoMarketT ?? 0)}t）</span>}
               </div>
@@ -167,8 +178,8 @@ export function FleetPanel({ s, apply }: { s: GameState; apply: Apply }) {
         return (
           <div key={p.id} className="card">
             <div className="card-head">
-              <PlaneSilhouette kind={t.silhouette} width={64} />
-              <strong>{t.name}</strong>
+              <PlaneSilhouette kind={t.silhouette} width={64} livery={planeLivery(s, p)} />
+              <strong>{t.name}</strong>{p.specialLivery && p.specialLivery.untilYM >= nowYM(s) && <span className="tag">{p.specialLivery.name}</span>}
               <span className="muted">{p.regNo}</span>
               {statusLabel(s, p, fly.has(p.id))}
             </div>
@@ -396,7 +407,7 @@ export function StaffPanel({ s, apply }: { s: GameState; apply: Apply }) {
 
 const COST_LABELS: Record<keyof MonthReport['costs'], string> = {
   fuel: '燃料費', maintenance: '整備費', heavyChecks: '重整備', crew: '人件費（乗員）', training: '訓練費',
-  airport: '空港使用料', ground: '地上・旅客サービス', sales: '販売手数料', delays: '遅延・欠航対応', bases: '基地・運航計画', lease: 'リース料', interest: '支払利息', overhead: '本社経費', cargo: '貨物取扱', insurance: '航空保険', safety: '事故・トラブル対応',
+  airport: '空港使用料', ground: '地上・旅客サービス', sales: '販売手数料', delays: '遅延・欠航対応', bases: '基地・運航計画', lease: 'リース料', interest: '支払利息', overhead: '本社経費', cargo: '貨物取扱', insurance: '航空保険', safety: '事故・トラブル対応', marketing: 'ファンサービス',
 };
 
 export function FinancePanel({ s, apply }: { s: GameState; apply: Apply }) {

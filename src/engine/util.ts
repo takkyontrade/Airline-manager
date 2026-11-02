@@ -33,7 +33,7 @@ export function formatYen(v: number): string {
 }
 
 /** Record a cost paid immediately in cash so it appears in this month's P&L */
-export function spend(s: GameState, kind: 'training' | 'heavyChecks', amount: number): GameState {
+export function spend(s: GameState, kind: 'training' | 'heavyChecks' | 'marketing', amount: number): GameState {
   const e = s.monthExpenses ?? {};
   return { ...s, cash: s.cash - amount, monthExpenses: { ...e, [kind]: (e[kind] ?? 0) + amount } };
 }

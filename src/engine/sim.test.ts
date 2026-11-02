@@ -7,6 +7,7 @@ import { crewedPlanes, hirePilots, trainPilots } from './staff';
 import { accidentRatePerFlight, canFly, HEAVY_CHECK_HOURS, intlReferenceFare, riskFactor, marketDemand, referenceFare, routeDistance } from './model';
 import { AIRCRAFT_BY_ID, ratingOf } from '../data/aircraft';
 import type { GameState, UsedListing } from './types';
+import { aircraftTour, cabinAcceptance, farewellCandidates, farewellFlight, paintSpecial } from './brand';
 import type { Result } from './util';
 
 const must = (r: Result): GameState => {
@@ -340,5 +341,33 @@ describe('cargo and safety', () => {
     const ev = (x: GameState) => (x.safety?.incidents ?? 0) + (x.safety?.serious ?? 0) * 10 + (x.safety?.accidents ?? 0) * 100;
     expect(ev(b)).toBeGreaterThan(ev(a));
     expect(b.history[0].costs.insurance!).toBeGreaterThan(a.history[0].costs.insurance!);
+  });
+});
+
+describe('cabins and fan service', () => {
+  test('a premium cabin takes years to catch on, then earns more per flight', () => {
+    let s: GameState = { ...newGame('クラス', 'NRT', 5), year: 1995, reputation: 65, cash: 1e12, slots: { HND: 99, ITM: 99, NRT: 99 } };
+    s = { ...s, pilots: { 'b747-400': { rated: 60, training: [] } } };
+    for (let i = 0; i < 4; i++) { let id: string; [s, id] = withListing(s, 'b747-400'); s = must(acquireUsed(s, id, 'buy')); }
+    s = { ...s, planes: s.planes.map((p) => ({ ...p, base: 'NRT' })) };
+    s = must(openRoute(s, 'NRT', 'LAX'));
+    s = must(setRoute(s, s.routes[0].id, { cabin: 'three' }));
+    expect(cabinAcceptance(s, 'three')).toBe(0);
+    for (let i = 0; i < 40; i++) s = advanceMonth(s);
+    expect(cabinAcceptance(s, 'three')).toBeGreaterThan(0.9);
+    const last = s.history[s.history.length - 1].routes[0];
+    expect(last.premiumPax).toBeGreaterThan(0);
+  });
+  test('special liveries, tours and farewell flights please fans', () => {
+    let s = setup();
+    const rep = s.reputation;
+    s = must(paintSpecial(s, s.planes[0].id, 'special', '五輪応援'));
+    expect(s.reputation).toBeGreaterThan(rep);
+    expect(paintSpecial(s, s.planes[0].id, 'retro', '').ok).toBe(false);
+    s = must(aircraftTour(s));
+    expect(aircraftTour(s).ok).toBe(false); // twice a year at most
+    expect(farewellCandidates(s)).toContain('dc3'); // old DC-3s
+    s = must(farewellFlight(s, 'dc3'));
+    expect(farewellFlight(s, 'dc3').ok).toBe(false);
   });
 });

@@ -21,11 +21,12 @@ import {
   autoSchedule, baseCostMonthly, dayCount, INITIAL_SLOTS, legMinutes, opsCostMonthly, routeWeekly,
   simulateDelays, slotAirports, validateRotation,
 } from './schedule';
-import type { GameState, MaintLevel, MonthCosts, MonthReport, Plane, Route, RouteResult, SchedulePolicy } from './types';
+import type { CabinLayout, GameState, MaintLevel, MonthCosts, MonthReport, Plane, Route, RouteResult, SchedulePolicy } from './types';
 import { fail, formatYen, nextId, ok, rng, withNews, type Result } from './util';
 import { allianceMembers, isTrunk, competitors, pairKey, partners, rivalCargoWeeklyT, updatePressure, type Competitor } from './rivals';
 import { fareBand, GROUNDINGS, HISTORY_NEWS, RAIL_OPENINGS, DEMAND_EVENTS, routeLicensing } from '../data/history';
 import { RIVAL_EVENTS } from '../data/rivals';
+import { cabinAcceptance, cabinSeats, DEFAULT_COMPANY_LIVERY, liveryBonus, noteCabin, premiumDemandShare, premiumFareMul } from './brand';
 
 export { formatYen, type Result } from './util';
 export { planeType, planeAge } from './fleet';
@@ -68,6 +69,9 @@ export function newGame(companyName: string, baseAirport: string, seed = Date.no
     gameOver: false,
     nextId: 1,
     seed: seed >>> 0,
+    foundedYear: START_YEAR,
+    livery: { ...DEFAULT_COMPANY_LIVERY },
+    fan: { farewells: [] },
   };
   return refreshUsedMarket(s);
 }
@@ -159,7 +163,7 @@ export function closeRoute(s: GameState, routeId: string): Result {
   }, `${AIRPORT_BY_CODE[r.from].name}〜${AIRPORT_BY_CODE[r.to].name}線を廃止しました。`)));
 }
 
-export type RoutePatch = Partial<{ fareYen: number; targetWeekly: number; typeId: string | null; policy: SchedulePolicy; cargoRateYen: number }>;
+export type RoutePatch = Partial<{ fareYen: number; targetWeekly: number; typeId: string | null; policy: SchedulePolicy; cargoRateYen: number; cabin: CabinLayout }>;
 
 export function setRoute(s: GameState, routeId: string, patch: RoutePatch): Result {
   const r = s.routes.find((x) => x.id === routeId);
@@ -173,7 +177,8 @@ export function setRoute(s: GameState, routeId: string, patch: RoutePatch): Resu
     const ref = routeReferenceFare(r.from, r.to, s.year, s.month);
     next.fareYen = Math.round(Math.min(ref * band[1], Math.max(ref * band[0], next.fareYen)) / 10) * 10;
   }
-  const s2 = { ...s, routes: s.routes.map((x) => (x.id === routeId ? next : x)) };
+  let s2: GameState = { ...s, routes: s.routes.map((x) => (x.id === routeId ? next : x)) };
+  if (patch.cabin) s2 = noteCabin(s2, patch.cabin);
   // fares don't change the timetable
   const scheduleChanged = patch.targetWeekly !== undefined || patch.typeId !== undefined || patch.policy !== undefined;
   return ok(scheduleChanged ? autoSchedule(s2) : s2);
@@ -262,7 +267,9 @@ export function routeMarket(s: GameState, route: Route, fly = flyablePlanes(s)):
   const priceRatio = route.fareYen / ref;
   // after an accident, travellers avoid the airline for a while
   const scare = (s.safety?.scareUntilYM ?? -1) >= nowYM(s) ? 0.8 : 1;
-  const aUs = effFreq > 0 ? effFreq ** 0.8 * priceRatio ** -2 * routeComfort(wk.legs) * repF * otpF * scare : 0;
+  const cabinF = 1 + (route.cabin === 'three' ? 0.08 : route.cabin === 'two' ? 0.05 : 0) * cabinAcceptance(s, route.cabin);
+  const liveryF = liveryBonus(s, wk.legs.map((l) => l.plane.id));
+  const aUs = effFreq > 0 ? effFreq ** 0.8 * priceRatio ** -2 * routeComfort(wk.legs) * repF * otpF * scare * cabinF * liveryF : 0;
   let aRivals = 0;
   let rivalPriceSum = 0;
   let rivalFreq = 0;
@@ -400,7 +407,8 @@ export function advanceMonth(s0: GameState): GameState {
   const { s, deliveriesPaid } = beginMonth(s0);
   const r = rng(s.seed + s.year * 12 + s.month);
   const costs = emptyCosts();
-  const prepaid = (s.monthExpenses?.training ?? 0) + (s.monthExpenses?.heavyChecks ?? 0);
+  const prepaid = (s.monthExpenses?.training ?? 0) + (s.monthExpenses?.heavyChecks ?? 0) + (s.monthExpenses?.marketing ?? 0);
+  costs.marketing = s.monthExpenses?.marketing ?? 0;
   costs.training = s.monthExpenses?.training ?? 0;
   costs.heavyChecks = s.monthExpenses?.heavyChecks ?? 0;
   const fly = flyablePlanes(s);
@@ -453,14 +461,21 @@ export function advanceMonth(s0: GameState): GameState {
       planeFlights[plane.id] = (planeFlights[plane.id] ?? 0) + flown;
     }
     const want = f.marketOneWay * f.share * (0.93 + r() * 0.14) * 2;
-    const pax = Math.min(want, seats);
+    // cabin classes: premium seats take more room but earn a multiple of the fare
+    const cab = route.cabin ?? 'mono';
+    const cs = cabinSeats(seats, cab);
+    const wantPrem = cab === 'mono' ? 0 : want * premiumDemandShare(route) * cabinAcceptance(s, cab);
+    const premiumPax = Math.min(wantPrem, cs.premium);
+    // premium travellers who find no seat partly fly economy instead
+    const econPax = Math.min(want - wantPrem + (wantPrem - premiumPax) * 0.5, cs.econ);
+    const pax = econPax + premiumPax;
     const cg = cargo.get(route.id);
     const cargoT = cg?.t ?? 0;
     const cargoRev = cg?.rev ?? 0;
     const cargoCost = cargoT * 1000 * cargoHandlingPerKg(isIntlRoute(route.from, route.to), s.year, s.month);
     costs.cargo = (costs.cargo ?? 0) + cargoCost;
     cost += cargoCost;
-    const rev = pax * route.fareYen + cargoRev;
+    const rev = econPax * route.fareYen + premiumPax * route.fareYen * premiumFareMul(route) + cargoRev;
     // international passengers need more service (meals, check-in, immigration handling)
     const ground = pax * groundCostPerPax(s.year, s.month) * (isIntlRoute(route.from, route.to) ? 1.5 : 1);
     const sales = rev * SALES_COMMISSION;
@@ -472,7 +487,7 @@ export function advanceMonth(s0: GameState): GameState {
     onTimeFlights += onTime;
     if (route.kind !== 'cargo') shareByPair[pairKey(route.from, route.to)] = f.share;
     routes.push({
-      routeId: route.id, flights, seats, pax, demand: want, marketDemand: f.marketOneWay * 2, share: f.share,
+      routeId: route.id, flights, seats: cs.econ + cs.premium, pax, premiumPax, demand: want, marketDemand: f.marketOneWay * 2, share: f.share,
       revenue: rev, cost, onTime: flights + cancelled > 0 ? onTime / (flights + cancelled) : 1, cancelled,
       cargoT, cargoRevenue: cargoRev, cargoMarketT: cg?.marketT ?? 0,
     });

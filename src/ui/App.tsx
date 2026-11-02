@@ -1,16 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../data/airports';
 import { advanceMonth, formatYen, newGame, openAirports, openRoute, START_YEAR, type Result } from '../engine/sim';
-import { clearAutosave, downloadSave, loadAutosave, parseSave, writeAutosave } from '../engine/save';
+import { clearAutosave, downloadSave, loadAutosave, loadSlot, parseSave, saveToSlot, SLOT_COUNT, slotInfo, writeAutosave } from '../engine/save';
 import { routeDistance } from '../engine/model';
 import type { GameState } from '../engine/types';
 import { MapView } from './MapView';
 import { FinancePanel, FleetPanel, MarketPanel, NewsPanel, RivalsPanel, RoutesPanel, StaffPanel } from './panels';
 import { SchedulePanel } from './SchedulePanel';
+import { BrandPanel } from './BrandPanel';
+import { OpsRoom } from './OpsRoom';
 
-type Tab = 'routes' | 'schedule' | 'fleet' | 'market' | 'staff' | 'finance' | 'rivals' | 'news';
+type Tab = 'routes' | 'schedule' | 'fleet' | 'market' | 'staff' | 'finance' | 'rivals' | 'brand' | 'news';
 const TABS: [Tab, string][] = [
-  ['routes', '路線'], ['schedule', 'ダイヤ'], ['fleet', '機材'], ['market', '機材市場'], ['staff', '人員・整備'], ['finance', '財務'], ['rivals', 'ライバル・規制'], ['news', 'ニュース'],
+  ['routes', '路線'], ['schedule', 'ダイヤ'], ['fleet', '機材'], ['market', '機材市場'], ['staff', '人員・整備'], ['finance', '財務'], ['rivals', 'ライバル・規制'], ['brand', 'ブランド'], ['news', 'ニュース'],
 ];
 
 export function App() {
@@ -62,6 +64,8 @@ function Game({ state, setState }: { state: GameState; setState: (s: GameState |
   const [tab, setTab] = useState<Tab>('routes');
   const [sel, setSel] = useState<string | null>(null);
   const [routeKind, setRouteKind] = useState<'pax' | 'cargo'>('pax');
+  const [view, setView] = useState<'map' | 'ops'>('map');
+  const [slotsOpen, setSlotsOpen] = useState(false);
   const [hoverRoute, setHoverRoute] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -99,6 +103,31 @@ function Game({ state, setState }: { state: GameState; setState: (s: GameState |
         {last && <div className={`muted ${last.profit < 0 ? 'neg' : 'pos'}`}>先月 {formatYen(last.profit)}</div>}
         <div className="muted">評判 {Math.round(state.reputation)}</div>
         <div className="spacer" />
+        <div className="seg small-seg">
+          <button className={view === 'map' ? 'on' : ''} onClick={() => setView('map')}>地図</button>
+          <button className={view === 'ops' ? 'on' : ''} onClick={() => setView('ops')}>オペレーションルーム</button>
+        </div>
+        <div className="slots-wrap">
+          <button className="secondary small" onClick={() => setSlotsOpen(!slotsOpen)}>セーブ枠</button>
+          {slotsOpen && (
+            <div className="slots-menu">
+              {Array.from({ length: SLOT_COUNT }, (_, i) => slotInfo(i + 1)).map((info) => (
+                <div key={info.slot} className="slot-row">
+                  <span className="small-text">枠{info.slot}：{info.label ?? '（空き）'}</span>
+                  <button className="small" onClick={() => {
+                    if (info.label && !confirm(`枠${info.slot}に上書きしますか？`)) return;
+                    flash(saveToSlot(info.slot, state) ? `枠${info.slot}に保存しました` : '保存できませんでした');
+                    setSlotsOpen(false);
+                  }}>保存</button>
+                  <button className="small secondary" disabled={!info.label} onClick={() => {
+                    const loaded = loadSlot(info.slot);
+                    if (loaded && confirm(`枠${info.slot}（${info.label}）を読み込みますか？ 今のゲームは自動保存から消えます。`)) { setState(loaded); setSlotsOpen(false); }
+                  }}>読込</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
         <button className="secondary small" onClick={() => downloadSave(state)}>書き出し</button>
         <button className="secondary small" onClick={() => fileRef.current?.click()}>読み込み</button>
         <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={async (e) => {
@@ -115,6 +144,7 @@ function Game({ state, setState }: { state: GameState; setState: (s: GameState |
       {state.gameOver && <div className="banner bad">倒産しました。「新しいゲーム」から再挑戦できます。</div>}
       <main>
         <section className="map-wrap">
+          {view === 'ops' ? <OpsRoom s={state} /> : <>
           <MapView state={state} selected={sel} onAirportClick={onAirportClick} highlightRoute={hoverRoute} />
           <div className="map-kind seg">
             <button className={routeKind === 'pax' ? 'on' : ''} onClick={() => setRouteKind('pax')}>旅客路線を開設</button>
@@ -123,6 +153,7 @@ function Game({ state, setState }: { state: GameState; setState: (s: GameState |
           <div className="map-hint">
             {sel ? `${AIRPORT_BY_CODE[sel].name}を選択中：結びたい空港をクリック（もう一度クリックで解除）` : '空港を2つ順にクリックして路線を開設 ／ ホイールで拡大、ドラッグで移動'}
           </div>
+          </>}
         </section>
         <aside>
           <nav className="tabs">
@@ -138,6 +169,7 @@ function Game({ state, setState }: { state: GameState; setState: (s: GameState |
             {tab === 'staff' && <StaffPanel s={state} apply={apply} />}
             {tab === 'finance' && <FinancePanel s={state} apply={apply} />}
             {tab === 'rivals' && <RivalsPanel s={state} apply={apply} />}
+            {tab === 'brand' && <BrandPanel s={state} apply={apply} />}
             {tab === 'news' && <NewsPanel s={state} />}
           </div>
         </aside>

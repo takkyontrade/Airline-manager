@@ -38,6 +38,8 @@ export interface Plane {
   cycleDays?: number;
   /** when in the shop for a conversion: the freighter type it becomes */
   convertTo?: string;
+  /** special or retro livery, shown until a month */
+  specialLivery?: { kind: 'special' | 'retro'; name: string; untilYM: number };
   /** locked planes keep their schedule when the auto-scheduler runs */
   locked: boolean;
   /** 0..100 */
@@ -76,7 +78,11 @@ export interface Route {
   kind?: 'pax' | 'cargo';
   /** cargo rate in yen per kg (cargo routes and belly cargo) — null/undefined = market rate */
   cargoRateYen?: number;
+  /** cabin layout: economy only, two classes, or three classes */
+  cabin?: CabinLayout;
 }
+
+export type CabinLayout = 'mono' | 'two' | 'three';
 
 export interface Loan {
   id: string;
@@ -124,6 +130,7 @@ export interface RouteResult {
   cargoT?: number;
   cargoRevenue?: number;
   cargoMarketT?: number;
+  premiumPax?: number;
 }
 
 export interface MonthCosts {
@@ -145,6 +152,8 @@ export interface MonthCosts {
   insurance?: number;
   /** incident repairs, accident compensation and investigations */
   safety?: number;
+  /** fan service: special liveries, events */
+  marketing?: number;
 }
 
 export interface MonthReport {
@@ -196,7 +205,7 @@ export interface GameState {
   /** experienced pilots hired this month, per type (reset monthly) */
   hiresThisMonth?: Record<string, number>;
   /** costs already paid in cash during the current month (shown in the month's P&L) */
-  monthExpenses?: { training?: number; heavyChecks?: number };
+  monthExpenses?: { training?: number; heavyChecks?: number; marketing?: number };
   history: MonthReport[];
   news: NewsItem[];
   negativeCashMonths: number;
@@ -206,6 +215,14 @@ export interface GameState {
   codeshares?: string[];
   /** safety record */
   safety?: SafetyRecord;
+  /** year the company was founded (for retro liveries) */
+  foundedYear?: number;
+  /** company livery */
+  livery?: CompanyLivery;
+  /** when each premium cabin layout was first offered (acceptance grows from then) */
+  cabinSince?: Partial<Record<CabinLayout, number>>;
+  /** fan service history */
+  fan?: { lastTourYM?: number; farewells: string[] };
   gameOver: boolean;
   nextId: number;
   seed: number;
@@ -218,4 +235,13 @@ export interface SafetyRecord {
   /** passengers stay away until this month after an accident */
   scareUntilYM?: number;
   lastAccidentYM?: number;
+}
+
+export interface CompanyLivery {
+  body: string;
+  stripe: string;
+  tail: string;
+  /** short text painted on the tail (2-3 characters) */
+  logo: string;
+  logoColor: string;
 }
