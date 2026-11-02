@@ -195,3 +195,5 @@ header { position: relative; }
 .kv td { padding: 2px 0; }
 .airport-card .chip { display: inline-block; margin: 2px 4px 2px 0; }
 .chip.neg { color: var(--bad); }
+.slot-list { display: flex; flex-direction: column; gap: 6px; }
+.slot-box { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; display: flex; flex-direction: column; gap: 2px; }

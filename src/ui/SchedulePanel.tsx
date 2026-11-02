@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { BaseSelect } from './BaseSelect';
+import { nextSlotEvent, slotScore, slotShare } from '../engine/slots';
 import { AIRPORT_BY_CODE } from '../data/airports';
 import { flyablePlanes, formatYen, openAirports, planeType, setOps, toggleCrewBase, type Result } from '../engine/sim';
 import {
@@ -71,11 +72,22 @@ export function SchedulePanel({ s, apply }: { s: GameState; apply: Apply }) {
       {slotAirports(s.year).length > 0 && (
         <>
           <h3>発着枠（1日あたり）</h3>
-          <div className="small-text">
-            {slotAirports(s.year).map((c) => (
-              <span key={c} className="chip">{aptName(c)} {use[c] ?? 0} / {s.slots[c] ?? 0}</span>
-            ))}
-            <span className="muted"> 毎年4月に評判に応じて追加されます。</span>
+          <div className="slot-list small-text">
+            {slotAirports(s.year).map((c) => {
+              const sc = slotScore(s, c);
+              const next = nextSlotEvent(s, c);
+              return (
+                <div key={c} className="slot-box">
+                  <div><strong>{aptName(c)}</strong> 使用 {use[c] ?? 0} / {s.slots[c] ?? 0} 回</div>
+                  <div className="muted">
+                    国の評価 {Math.round(sc.total * 100)}点（{sc.parts.map((p) => `${p.label}${Math.round(p.value * 100)}`).join('・')}）
+                    → 次の増枠で全体の{Math.round(slotShare(sc.total) * 100)}%を配分
+                  </div>
+                  <div className="muted">{next ? `次の増枠：${next.year}年${next.month}月 ${next.label}（全体で1日${next.pool}回）` : '予定されている増枠はありません'}</div>
+                </div>
+              );
+            })}
+            <p className="muted">枠は新しい滑走路ができたときにまとめて増え、国の評価で各社に配られます。評価が高いと毎年4月にも少し増えます。2005年からは5年ごとに使っていない枠が回収されます。</p>
           </div>
         </>
       )}

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { addCircuit, advanceMonth, closeRoute, removeCircuit, setCircuit, joinAlliance, newGame, openRoute, routeMarket, setOps, setRoute, START_CASH } from './sim';
+import { allocateSlots } from './slots';
 import { circuitScheduled, setPlaneBase, autoSchedule, scheduledWeekly, setPlaneSchedule, slotUsage, validateRotation, legViews } from './schedule';
 import { acquireUsed, disposePlane, orderNew, leadMonths, startConversion, startHeavyCheck } from './fleet';
 import { creditLimit, takeLoan, repayLoan } from './finance';
@@ -497,5 +498,23 @@ describe('planes in the shop', () => {
     expect(s.planes.find((p) => p.id === busy.id)!.schedule).toHaveLength(0);
     expect(s.planes.find((p) => p.id === idle.id)!.schedule.length).toBeGreaterThan(0);
     expect(scheduledWeekly(s, s.routes[0].id)).toBe(7);
+  });
+});
+
+describe('slot allocation', () => {
+  test('a new runway releases slots, newcomers get a priority share', () => {
+    const s = { ...newGame('t', 'HND', 1, { startYear: 1986 }), year: 1997, month: 3 };
+    const { s: after, news } = allocateSlots(s);
+    expect(after.slots.HND).toBeGreaterThan(s.slots.HND + 12);
+    expect(news.join()).toContain('新規参入枠');
+  });
+  test('no slots appear outside the scheduled steps for an average airline', () => {
+    const s = { ...newGame('t', 'HND', 1, { startYear: 1986 }), year: 1990, month: 4 };
+    expect(allocateSlots(s).s.slots.HND).toBe(s.slots.HND);
+  });
+  test('unused slots are taken back in recollection years', () => {
+    const s = { ...newGame('t', 'HND', 1, { startYear: 2000 }), year: 2005, month: 4 };
+    const big = { ...s, slots: { ...s.slots, HND: 100 } };
+    expect(allocateSlots(big).s.slots.HND).toBeLessThan(100);
   });
 });

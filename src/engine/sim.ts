@@ -16,10 +16,11 @@ import {
   heavyCheckDue, heavyCheckOverdue, nowYM, planeValue, planeAge, planeType, refreshUsedMarket, startHeavyCheck, ymLabel,
 } from './fleet';
 import { serviceLoans } from './finance';
+import { allocateSlots } from './slots';
 import { crewedPlanes, graduateTrainees, traineeCount } from './staff';
 import {
   autoSchedule, baseCostMonthly, dayCount, INITIAL_SLOTS, legMinutes, opsCostMonthly, routeWeekly,
-  scheduleStale, simulateDelays, slotAirports, validateRotation,
+  scheduleStale, simulateDelays, validateRotation,
 } from './schedule';
 import type { CabinLayout, GameState, MaintLevel, MonthCosts, MonthReport, Plane, Route, RouteResult, SchedulePolicy } from './types';
 import { fail, formatYen, nextId, ok, rng, withNews, type Result } from './util';
@@ -419,14 +420,11 @@ function beginMonth(s0: GameState): { s: GameState; deliveriesPaid: number } {
   }
   // planes going into or coming out of the shop: hand their flights to the others
   if (scheduleStale(s)) s = autoSchedule(s);
-  // April: the ministry allocates additional slots at congested airports
-  if (s.month === 4) {
-    const extra: Record<string, number> = {};
-    for (const code of slotAirports(s.year)) {
-      const growth = 2 + Math.floor(s.reputation / 25) + (s.year === 2010 && code === 'HND' ? 10 : 0) + (s.year >= 1988 && s.year <= 2000 && code === 'HND' ? 2 : 0);
-      extra[code] = (s.slots[code] ?? INITIAL_SLOTS[code] ?? 8) + growth;
-    }
-    s = withNews({ ...s, slots: { ...s.slots, ...extra } }, `今年度の発着枠の配分が決まりました（${Object.entries(extra).map(([c, n]) => `${AIRPORT_BY_CODE[c].name} 1日${n}回`).join('、')}）。`);
+  // slots: runway openings, yearly adjustments, five-yearly recollection
+  {
+    const r = allocateSlots(s);
+    s = r.s;
+    for (const n of r.news) s = withNews(s, n);
   }
   s = graduateTrainees(s);
   return { s: autoSchedule(s), deliveriesPaid };
