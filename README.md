@@ -93,6 +93,11 @@ npm run dev
 - 長距離便のダイヤを手で編集（日付をまたぐ時刻、何日で1往復か）
 - 始める年（1960・1972・1986・2000）と難易度（やさしい・ふつう・むずかしい）を選べる
 
+## 公開（GitHub Pages）
+
+`.github/workflows/deploy.yml` が main への push のたびにテスト・ビルドして GitHub Pages に公開します。
+無料プランではリポジトリを Public にする必要があります（Settings → Pages → Source を「GitHub Actions」に）。
+
 ## 開発
 
 ```
