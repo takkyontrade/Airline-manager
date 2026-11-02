@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { NumInput } from './NumInput';
+import { BaseSelect } from './BaseSelect';
 import { AIRPORT_BY_CODE } from '../data/airports';
 import { AIRCRAFT_BY_ID, conversionsFor } from '../data/aircraft';
 import {
@@ -206,9 +207,8 @@ export function FleetPanel({ s, apply }: { s: GameState; apply: Apply }) {
               </div>
             )}
             <div className="row">
-              {p.status !== 'onOrder' && (
-                <span className="small-text muted">拠点 {aptName(p.base)} ／ 1日{p.schedule.length}便{p.locked ? '（手動・固定）' : ''}</span>
-              )}
+              <BaseSelect s={s} p={p} apply={apply} />
+              {p.status !== 'onOrder' && <span className="small-text muted">1日{p.schedule.length}便{p.locked ? '（手動・固定）' : ''}</span>}
               {p.status === 'active' && !wet && (
                 <button className="secondary small" onClick={() => {
                   const cost = heavyCheckCost(t, isD, s.year, s.month);

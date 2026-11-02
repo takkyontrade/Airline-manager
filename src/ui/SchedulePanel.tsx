@@ -1,8 +1,9 @@
 import { useState } from 'react';
+import { BaseSelect } from './BaseSelect';
 import { AIRPORT_BY_CODE } from '../data/airports';
 import { flyablePlanes, formatYen, openAirports, planeType, setOps, toggleCrewBase, type Result } from '../engine/sim';
 import {
-  airportHours, autoSchedule, DAILY, DAY_NAMES, dayCount, dayTag, hhmm, legViews, OPS_LEVELS, setPlaneBase,
+  airportHours, autoSchedule, DAILY, DAY_NAMES, dayCount, dayTag, hhmm, legViews, OPS_LEVELS,
   setPlaneLock, setPlaneSchedule, slotAirports, slotUsage, validateRotation, BASE_COST_MONTHLY,
 } from '../engine/schedule';
 import type { GameState, Leg, Plane } from '../engine/types';
@@ -134,11 +135,7 @@ function LegEditor({ s, p, apply }: { s: GameState; p: Plane; apply: Apply }) {
   return (
     <div className="card editor">
       <div className="row">
-        <label className="inline">拠点
-          <select value={p.base} onChange={(e) => confirm('拠点を変えるとこの機体のダイヤは作り直されます。よろしいですか？') && apply(setPlaneBase(s, p.id, e.target.value))}>
-            {[...new Set([s.baseAirport, ...s.crewBases, ...s.routes.flatMap((r) => [r.from, r.to])])].map((c) => <option key={c} value={c}>{aptName(c)}</option>)}
-          </select>
-        </label>
+        <BaseSelect s={s} p={p} apply={apply} />
         <label className="inline">
           <input type="checkbox" checked={p.locked} onChange={(e) => apply(setPlaneLock(s, p.id, e.target.checked))} />
           固定（自動で組み直しても変えない）

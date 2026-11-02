@@ -244,7 +244,7 @@ export function autoSchedule(s: GameState): GameState {
       const days = perWeek >= 7 ? DAILY : spreadDays(perWeek);
       const ok = (p: Plane) => !planeType(p).freighter && (!c.typeId || p.typeId === c.typeId) && segs.every((g) => canFly(planeType(p), g.route.from, g.route.to, s.year, g.route.via).ok);
       if (!planes.some((p) => p.base === c.stops[0] && ok(p))) {
-        const idle = planes.find((p) => p.schedule.length === 0 && ok(p));
+        const idle = planes.find((p) => p.schedule.length === 0 && !p.baseFixed && ok(p));
         if (idle) idle.base = c.stops[0];
       }
       let placed = false;
@@ -293,7 +293,7 @@ export function autoSchedule(s: GameState): GameState {
       let placed = false;
       // if no plane is based at either end, move an idle plane there
       if (!planes.some((p) => (p.base === r.from || p.base === r.to) && suits(p, r) && (!r.typeId || p.typeId === r.typeId) && canFly(planeType(p), r.from, r.to, s.year, r.via).ok)) {
-        const idle = planes.find((p) => p.schedule.length === 0 && suits(p, r) && (!r.typeId || p.typeId === r.typeId) && canFly(planeType(p), r.from, r.to, s.year, r.via).ok);
+        const idle = planes.find((p) => p.schedule.length === 0 && !p.baseFixed && suits(p, r) && (!r.typeId || p.typeId === r.typeId) && canFly(planeType(p), r.from, r.to, s.year, r.via).ok);
         if (idle) idle.base = isForeign(r.from) ? r.to : isForeign(r.to) ? r.from : s.crewBases.includes(r.to) ? r.to : r.from;
       }
       for (const p of planes) {
@@ -443,10 +443,12 @@ export function setPlaneLock(s: GameState, planeId: string, locked: boolean): Re
   return ok({ ...s, planes: s.planes.map((x) => (x.id === planeId ? { ...x, locked } : x)) });
 }
 
-export function setPlaneBase(s: GameState, planeId: string, base: string): Result {
+/** Move a plane's home base. base null = let the auto-scheduler choose again. */
+export function setPlaneBase(s: GameState, planeId: string, base: string | null): Result {
   const p = s.planes.find((x) => x.id === planeId);
   if (!p) return fail('機体が見つかりません');
-  return ok(autoSchedule({ ...s, planes: s.planes.map((x) => (x.id === planeId ? { ...x, base, schedule: [], locked: false } : x)) }));
+  if (base && AIRPORT_BY_CODE[base]?.foreign) return fail('海外の空港は拠点にできません');
+  return ok(autoSchedule({ ...s, planes: s.planes.map((x) => (x.id === planeId ? { ...x, base: base ?? x.base, baseFixed: base !== null, schedule: [], locked: false, cycleDays: undefined } : x)) }));
 }
 
 // ---- delays --------------------------------------------------------------

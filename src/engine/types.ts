@@ -42,6 +42,8 @@ export interface Plane {
   specialLivery?: { kind: 'special' | 'retro'; name: string; untilYM: number };
   /** locked planes keep their schedule when the auto-scheduler runs */
   locked: boolean;
+  /** the player chose this base: the auto-scheduler won't move the plane */
+  baseFixed?: boolean;
   /** 0..100 */
   condition: number;
   totalHours: number;

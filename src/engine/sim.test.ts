@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { addCircuit, advanceMonth, closeRoute, removeCircuit, setCircuit, joinAlliance, newGame, openRoute, routeMarket, setOps, setRoute, START_CASH } from './sim';
-import { circuitScheduled, autoSchedule, scheduledWeekly, setPlaneSchedule, slotUsage, validateRotation, legViews } from './schedule';
+import { circuitScheduled, setPlaneBase, autoSchedule, scheduledWeekly, setPlaneSchedule, slotUsage, validateRotation, legViews } from './schedule';
 import { acquireUsed, disposePlane, orderNew, leadMonths, startConversion, startHeavyCheck } from './fleet';
 import { creditLimit, takeLoan, repayLoan } from './finance';
 import { crewedPlanes, hirePilots, trainPilots } from './staff';
@@ -452,5 +452,24 @@ describe('circuits', () => {
     let s = must(addCircuit(base2000(), ['HND', 'KOJ', 'FUK']));
     s = must(closeRoute(s, s.routes[1].id));
     expect(circuitScheduled(s, s.circuits![0])).toBe(0);
+  });
+});
+
+describe('plane base', () => {
+  test('a chosen base sticks and the auto-scheduler flies from it', () => {
+    let s = newGame('t', 'HND', 1, { startYear: 2000 });
+    let id: string;
+    [s, id] = withListing(s, 'b737-500', 100_000_000);
+    s = must(acquireUsed(s, id, 'buy'));
+    const planeId = s.planes[0].id;
+    s = must(setPlaneBase(s, planeId, 'FUK'));
+    expect(s.planes[0].base).toBe('FUK');
+    s = must(openRoute(s, 'HND', 'ITM'));
+    // no route touches FUK: the plane stays there instead of being moved
+    expect(s.planes[0].base).toBe('FUK');
+    s = must(openRoute(s, 'FUK', 'KOJ'));
+    expect(s.planes[0].schedule.length).toBeGreaterThan(0);
+    s = must(setPlaneBase(s, planeId, null));
+    expect(s.planes[0].baseFixed).toBe(false);
   });
 });
