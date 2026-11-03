@@ -245,6 +245,8 @@ interface GreedyOpts {
   /** plane order used for ties and for 'first' */
   planes: 'big' | 'small';
   seed?: number;
+  /** share of free planes first based at outstations (night stops: fly in to the hub in the morning) */
+  night?: number;
 }
 
 /** The auto-scheduler variants tried; a bigger ops-planning department tries more and keeps the best */
@@ -253,10 +255,12 @@ function scheduleVariants(opsLevel: number): GreedyOpts[] {
   for (const order of ['long', 'short', 'need'] as const)
     for (const pick of ['first', 'idle', 'packed', 'small', 'early'] as const)
       for (const planes of ['big', 'small'] as const) all.push({ order, pick, planes });
+  for (const night of [0.3, 0.6])
+    for (const pick of ['first', 'idle', 'early'] as const) all.push({ order: 'need', pick, planes: 'big', night });
   const base = all[0];
   if (opsLevel <= 0) return [base];
-  if (opsLevel === 1) return [base, ...all.filter((o) => o.planes === 'big' && o.order === 'long' && o.pick !== 'first')];
-  if (opsLevel === 2) return all.filter((o) => o.order !== 'need' || o.planes === 'big');
+  if (opsLevel === 1) return [base, ...all.filter((o) => (o.planes === 'big' && o.order === 'long' && o.pick !== 'first') || (o.night === 0.3 && o.pick === 'first'))];
+  if (opsLevel === 2) return all.filter((o) => (o.order !== 'need' || o.planes === 'big') && (o.night === undefined || o.pick === 'first'));
   return [...all, ...Array.from({ length: 4 }, (_, i): GreedyOpts => ({ order: 'shuffle', pick: (['idle', 'packed', 'small', 'early'] as const)[i], planes: i % 2 ? 'small' : 'big', seed: i + 1 }))];
 }
 
@@ -306,6 +310,21 @@ function greedySchedule(s: GameState, opt: GreedyOpts): { state: GameState; scor
   for (const p of planes) {
     state.time.set(p.id, 0);
     state.at.set(p.id, p.base);
+  }
+
+  // night stops: some free planes start the day at the far end of busy routes
+  if (opt.night) {
+    const free = planes.filter((p) => !p.baseFixed && !planeType(p).freighter);
+    const k = Math.floor(free.length * opt.night);
+    const busy = needs.filter((n) => (n.route.kind ?? 'pax') === 'pax' && n.remainingWeekly >= 7 && !isForeign(n.route.from) && !isForeign(n.route.to))
+      .sort((a, b) => b.remainingWeekly - a.remainingWeekly);
+    const hub = (code: string) => planes.filter((p) => p.base === code).length;
+    for (let i = 0; i < k && busy.length; i++) {
+      const r = busy[i % busy.length].route;
+      const out = hub(r.from) >= hub(r.to) ? r.to : r.from;
+      const p = free.find((x) => (x.base === r.from || x.base === r.to) && x.base !== out && canFly(planeType(x), r.from, r.to, s.year, r.via).ok && (!r.typeId || x.typeId === r.typeId));
+      if (p) { p.base = out; free.splice(free.indexOf(p), 1); }
+    }
   }
 
   // departures placed so far, per route direction and per airport (to spread them out)
@@ -388,6 +407,7 @@ function greedySchedule(s: GameState, opt: GreedyOpts): { state: GameState; scor
         const idle = planes.find((p) => p.schedule.length === 0 && !p.baseFixed && suits(p, r) && (!r.typeId || p.typeId === r.typeId) && canFly(planeType(p), r.from, r.to, s.year, r.via).ok);
         if (idle) idle.base = isForeign(r.from) ? r.to : isForeign(r.to) ? r.from : s.crewBases.includes(r.to) ? r.to : r.from;
       }
+      const search = () => {
       for (const p of planes) {
         if (!suits(p, r)) continue;
         if (r.typeId && p.typeId !== r.typeId) continue;
@@ -418,7 +438,7 @@ function greedySchedule(s: GameState, opt: GreedyOpts): { state: GameState; scor
           const start = Math.ceil(ready / 5) * 5;
           let best = -1;
           for (let t = start; t <= Math.min(start + 240, closeB); t += 5) {
-            if (!fits(t) || dist(t, others) < 10) continue;
+            if (!fits(t) || dist(t, others) < 3) continue;
             // earliest time that is as far as possible (up to the ideal gap) from the route's other flights
             const score = Math.min(gap, dist(t, same));
             if (score > best) { best = score; chosen = t; }
@@ -460,6 +480,18 @@ function greedySchedule(s: GameState, opt: GreedyOpts): { state: GameState; scor
           need.remainingWeekly -= perWeek;
         } });
         if (opt.pick === 'first' || cands.length >= 12) break;
+      }
+      };
+      search();
+      // night stop: no based plane could fit another round trip -> base an idle plane at the other end,
+      // so it sleeps there and flies in to the hub in the morning
+      if (!cands.length && !longCands.length) {
+        const fit = (p: Plane) => p.schedule.length === 0 && !p.baseFixed && suits(p, r) && (!r.typeId || p.typeId === r.typeId) && canFly(planeType(p), r.from, r.to, s.year, r.via).ok;
+        const atFrom = planes.filter((p) => p.base === r.from && p.schedule.length > 0).length;
+        const atTo = planes.filter((p) => p.base === r.to && p.schedule.length > 0).length;
+        const end = isForeign(r.from) ? r.to : isForeign(r.to) ? r.from : atFrom > atTo ? r.to : r.from;
+        const idle = planes.find((p) => fit(p) && p.base !== end);
+        if (idle) { const old = idle.base; idle.base = end; search(); if (!cands.length && !longCands.length) idle.base = old; }
       }
       const seatsOf = (c: { p: Plane }) => planeType(c.p).seats;
       const timeOf = (c: { p: Plane }) => state.time.get(c.p.id)!;
