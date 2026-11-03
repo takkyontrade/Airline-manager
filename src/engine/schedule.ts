@@ -364,7 +364,7 @@ function greedySchedule(s: GameState, opt: GreedyOpts): { state: GameState; scor
     for (let guard = 0; remaining > 0 && guard < 30; guard++) {
       const perWeek = Math.min(7, remaining);
       const days = perWeek >= 7 ? DAILY : spreadDays(perWeek);
-      const ok = (p: Plane) => !planeType(p).freighter && (!c.typeId || p.typeId === c.typeId) && segs.every((g) => canFly(planeType(p), g.route.from, g.route.to, s.year, g.route.via).ok);
+      const ok = (p: Plane) => !!planeType(p).freighter === (c.kind === 'cargo') && (!c.typeId || p.typeId === c.typeId) && segs.every((g) => canFly(planeType(p), g.route.from, g.route.to, s.year, g.route.via).ok);
       if (!planes.some((p) => p.base === c.stops[0] && ok(p))) {
         const idle = planes.find((p) => p.schedule.length === 0 && !p.baseFixed && ok(p));
         if (idle) idle.base = c.stops[0];
@@ -580,7 +580,7 @@ export function circuitSegments(s: GameState, c: Circuit): { from: string; to: s
   for (let i = 0; i < c.stops.length; i++) {
     const from = c.stops[i];
     const to = c.stops[(i + 1) % c.stops.length];
-    const route = s.routes.find((r) => (r.kind ?? 'pax') === 'pax' && ((r.from === from && r.to === to) || (r.from === to && r.to === from)));
+    const route = s.routes.find((r) => (r.kind ?? 'pax') === (c.kind ?? 'pax') && ((r.from === from && r.to === to) || (r.from === to && r.to === from)));
     if (!route) return null;
     out.push({ from, to, route, dir: route.from === from ? 0 : 1 });
   }

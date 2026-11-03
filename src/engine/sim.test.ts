@@ -650,3 +650,27 @@ describe('bulk by airport', () => {
     expect(s.routes.find((r) => r.from === 'ITM')!.pricing).toBe('revenue');
   });
 });
+
+describe('cargo circuits', () => {
+  test('a cargo triangle opens cargo legs and is flown by a freighter', () => {
+    let s: GameState = { ...newGame('t', 'NRT', 1, { startYear: 2005 }), reputation: 80, cash: 1e12, slots: { HND: 99, ITM: 99, NRT: 99 } };
+    let id: string;
+    [s, id] = withListing(s, 'b767-300', 1);
+    s = must(acquireUsed(s, id, 'buy'));
+    [s, id] = withListing(s, 'a300b4f', 1);
+    s = must(acquireUsed(s, id, 'buy'));
+    s = { ...s, crewBases: [...s.crewBases, 'NRT'], pilots: { ...s.pilots, a300: { rated: 20, training: [] }, 'b767-300': { rated: 20, training: [] } } };
+    s = { ...s, planes: s.planes.map((p) => ({ ...p, base: 'NRT' })) };
+    s = must(addCircuit(s, ['NRT', 'ICN', 'KIX'], 7, null, 'cargo'));
+    expect(s.routes.every((r) => r.kind === 'cargo')).toBe(true);
+    const c = s.circuits![0];
+    expect(c.kind).toBe('cargo');
+    const freighter = s.planes.find((p) => p.typeId === 'a300b4f')!;
+    expect(freighter.schedule.length).toBe(3);
+    expect(s.planes.find((p) => p.typeId === 'b767-300')!.schedule).toHaveLength(0);
+  });
+  test('passenger circuits still stay domestic', () => {
+    const s = newGame('t', 'NRT', 1, { startYear: 2000 });
+    expect(addCircuit(s, ['NRT', 'ICN', 'PVG']).ok).toBe(false);
+  });
+});

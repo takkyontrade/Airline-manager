@@ -275,6 +275,8 @@ export interface Circuit {
   /** times per week the whole circuit is flown */
   targetWeekly: number;
   typeId: string | null;
+  /** cargo circuits use cargo routes and freighters (default: passenger) */
+  kind?: 'pax' | 'cargo';
 }
 
 /** One month in the long-term statistics */

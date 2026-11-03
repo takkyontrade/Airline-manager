@@ -12,8 +12,10 @@ const name = (c: string) => AIRPORT_BY_CODE[c]?.name ?? c;
 export function CircuitsBox({ s, apply }: { s: GameState; apply: (r: Result) => void }) {
   const [open, setOpen] = useState(false);
   const [stops, setStops] = useState<string[]>([s.baseAirport, '', '', '', '']);
-  const airports = openAirports(s.year).filter((a) => !a.foreign).sort((a, b) => b.popM - a.popM);
-  const types = [...new Set(s.planes.filter((p) => !AIRCRAFT_BY_ID[p.typeId].freighter).map((p) => p.typeId))];
+  const [kind, setKind] = useState<'pax' | 'cargo'>('pax');
+  const jp = openAirports(s.year).filter((a) => !a.foreign).sort((a, b) => b.popM - a.popM);
+  const abroad = openAirports(s.year).filter((a) => a.foreign).sort((a, b) => (b.intlWeight ?? 0) - (a.intlWeight ?? 0));
+  const typesOf = (k: 'pax' | 'cargo') => [...new Set(s.planes.filter((p) => !!AIRCRAFT_BY_ID[p.typeId].freighter === (k === 'cargo')).map((p) => p.typeId))];
   const circuits = s.circuits ?? [];
   return (
     <div className="card circuits">
@@ -21,23 +23,28 @@ export function CircuitsBox({ s, apply }: { s: GameState; apply: (r: Result) => 
         <strong>周回ルート（三角運航など）</strong>
         <button className="small secondary" onClick={() => setOpen(!open)}>{open ? '閉じる' : '＋ 新しく作る'}</button>
       </div>
-      <p className="muted small-text">1機が A→B→C→A のように回って拠点に戻る運航を、自動ダイヤで組みます。同じ空港を2回通ることもできます（例：伊丹→仙台→名古屋→仙台→伊丹）。足りない区間の路線は自動で開設されます。</p>
+      <p className="muted small-text">1機が A→B→C→A のように回って拠点に戻る運航を、自動ダイヤで組みます。同じ空港を2回通ることもできます（例：伊丹→仙台→名古屋→仙台→伊丹）。足りない区間の路線は自動で開設されます。貨物の周回は貨物機で飛び、海外の空港も入れられます（例：成田→仁川→関西→成田。海外どうしの区間は飛べません）。1日で回りきれる距離にしてください。</p>
       {open && (
         <div className="circuit-form">
+          <div className="seg">
+            <button className={`small ${kind === 'pax' ? '' : 'secondary'}`} onClick={() => setKind('pax')}>旅客</button>
+            <button className={`small ${kind === 'cargo' ? '' : 'secondary'}`} onClick={() => setKind('cargo')}>貨物</button>
+          </div>
           {stops.map((v, i) => (
             <label key={i}>
               {i === 0 ? '出発・帰着' : `${i}番目`}{i >= 3 && '（任意）'}
               <select value={v} onChange={(e) => setStops(stops.map((x, k) => (k === i ? e.target.value : x)))}>
                 <option value="">—</option>
-                {airports.map((a) => <option key={a.code} value={a.code}>{a.name}</option>)}
+                {jp.map((a) => <option key={a.code} value={a.code}>{a.name}</option>)}
+                {kind === 'cargo' && i > 0 && <optgroup label="海外">{abroad.map((a) => <option key={a.code} value={a.code}>{a.name}（{a.city}）</option>)}</optgroup>}
               </select>
             </label>
           ))}
           <button onClick={() => {
-            const r = addCircuit(s, stops, 7);
+            const r = addCircuit(s, stops, 7, null, kind);
             apply(r);
             if (r.ok) { setOpen(false); setStops([s.baseAirport, '', '', '', '']); }
-          }}>この周回で開設（毎日）</button>
+          }}>この{kind === 'cargo' ? '貨物の' : ''}周回で開設（毎日）</button>
         </div>
       )}
       {circuits.map((c) => {
@@ -45,7 +52,7 @@ export function CircuitsBox({ s, apply }: { s: GameState; apply: (r: Result) => 
         const got = circuitScheduled(s, c);
         return (
           <div key={c.id} className="circuit-row">
-            <div><strong>{[...c.stops, c.stops[0]].map(name).join(' → ')}</strong></div>
+            <div><strong>{[...c.stops, c.stops[0]].map(name).join(' → ')}</strong>{c.kind === 'cargo' && <span className="tag cargo">貨物</span>}</div>
             <div className="row">
               <label className="inline">
                 週
@@ -54,7 +61,7 @@ export function CircuitsBox({ s, apply }: { s: GameState; apply: (r: Result) => 
               </label>
               <select value={c.typeId ?? ''} onChange={(e) => apply(setCircuit(s, c.id, { typeId: e.target.value || null }))}>
                 <option value="">機材おまかせ</option>
-                {types.map((t) => <option key={t} value={t}>{AIRCRAFT_BY_ID[t].name}</option>)}
+                {typesOf(c.kind ?? 'pax').map((t) => <option key={t} value={t}>{AIRCRAFT_BY_ID[t].name}</option>)}
               </select>
               <button className="danger small" onClick={() => confirm('この周回ルートをやめますか？（各区間の路線は残ります）') && apply(removeCircuit(s, c.id))}>やめる</button>
             </div>
