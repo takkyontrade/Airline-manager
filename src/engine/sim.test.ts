@@ -574,6 +574,15 @@ describe('aircraft type priority', () => {
     const s = fleet();
     expect(typeOn(s, s.routes[1].id)).toBe('l1011');
   });
+  test('a jumbo is not sent to a quiet local route', () => {
+    let s: GameState = { ...newGame('t', 'HND', 1, { startYear: 1975 }), slots: { HND: 200, ITM: 200, NRT: 20 } };
+    let id: string;
+    [s, id] = withListing(s, 'b747-100', 1); s = must(acquireUsed(s, id, 'buy'));
+    s = must(openRoute(s, 'HND', 'MMB', { skipLicense: true }));
+    expect(s.planes[0].schedule).toHaveLength(0);
+    s = must(openRoute(s, 'HND', 'CTS', { skipLicense: true }));
+    expect(s.planes[0].schedule.length).toBeGreaterThan(0);
+  });
   test('a priority list is followed', () => {
     let s = fleet();
     s = must(setRoute(s, s.routes[1].id, { typePriority: ['ys11'] }));

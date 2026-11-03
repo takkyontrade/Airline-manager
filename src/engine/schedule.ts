@@ -299,11 +299,21 @@ function greedySchedule(s: GameState, opt: GreedyOpts): { state: GameState; scor
 
   const result = new Map<string, Plane>();
   const dist = (n: Need) => routeDistance(n.route.from, n.route.to);
-  // how busy each route is (0 = quietest, 1 = busiest): big planes go to busy routes
-  const demandOf = new Map(s.routes.map((r) => [r.id, marketDemand(r.from, r.to, s.year, s.month)]));
-  const byDemand = [...s.routes].sort((a, b) => demandOf.get(a.id)! - demandOf.get(b.id)!);
-  const demandRank = new Map(byDemand.map((r, i) => [r.id, byDemand.length > 1 ? i / (byDemand.length - 1) : 1]));
-  const maxSeats = Math.max(1, ...unlocked.map((p) => planeType(p).seats));
+  // passengers we can expect per flight. With last month's results: what we could have sold (demand,
+  // not just what fitted) spread over the flights now planned; before that, a cautious share of the market.
+  const lastRoutes = s.history[s.history.length - 1]?.routes ?? [];
+  const expect = new Map(s.routes.map((r) => {
+    const planned = Math.max(1, (r.targetWeekly / 7) * 2 * 30);
+    const res = lastRoutes.find((x) => x.routeId === r.id);
+    const v = res && res.flights > 0 && res.demand > 0 ? res.demand / planned : (marketDemand(r.from, r.to, s.year, s.month) * 0.5) / (planned / 2);
+    return [r.id, v] as const;
+  }));
+  /** a plane far bigger than the route needs would fly mostly empty (load factor under 40%) and lose money */
+  const oversized = (p: Plane, r: Route) => {
+    if ((r.kind ?? 'pax') === 'cargo' || r.typeId === p.typeId || (r.typePriority ?? []).includes(p.typeId)) return false;
+    const seats = planeType(p).seats;
+    return seats > 60 && seats * 0.4 > (expect.get(r.id) ?? Infinity);
+  };
   let fitSum = 0, fitN = 0;
   if (opt.order === 'long') needs.sort((a, b) => dist(b) - dist(a));
   else if (opt.order === 'short') needs.sort((a, b) => dist(a) - dist(b));
@@ -417,6 +427,7 @@ function greedySchedule(s: GameState, opt: GreedyOpts): { state: GameState; scor
       for (const p of planes) {
         if (!suits(p, r)) continue;
         if (r.typeId && p.typeId !== r.typeId) continue;
+        if (oversized(p, r)) continue;
         if (!canFly(planeType(p), r.from, r.to, s.year, r.via).ok) continue;
         if (p.base !== r.from && p.base !== r.to) continue;
         const outDir: 0 | 1 = p.base === r.from ? 0 : 1;
@@ -501,8 +512,8 @@ function greedySchedule(s: GameState, opt: GreedyOpts): { state: GameState; scor
       }
       const seatsOf = (c: { p: Plane }) => planeType(c.p).seats;
       const timeOf = (c: { p: Plane }) => state.time.get(c.p.id)!;
-      const want = demandRank.get(r.id) ?? 0.5;
-      const fitOf = (c: Cand) => Math.abs(seatsOf(c) / maxSeats - want);
+      // best fit: a load factor around 80%; too small is better than too big
+      const fitOf = (c: Cand) => { const x = Math.log((seatsOf(c) * 0.8) / Math.max(10, expect.get(r.id) ?? 100)); return x > 0 ? x * 1.5 : -x; };
       const prio = r.typePriority ?? [];
       const rank = (c: Cand) => { const i = prio.indexOf(c.p.typeId); return i < 0 ? prio.length : i; };
       const pickBy: Record<GreedyOpts['pick'], (a: Cand, b: Cand) => number> = {
@@ -516,7 +527,7 @@ function greedySchedule(s: GameState, opt: GreedyOpts): { state: GameState; scor
       // the player's type priority comes first, then this variant's rule
       const choice = cands.length ? [...cands].sort((a, b) => rank(a) - rank(b) || pickBy[opt.pick](a, b))[0] : longCands[0];
       if (choice) {
-        if ('dep' in choice) { fitSum += 1 - fitOf(choice as Cand); fitN++; }
+        if ('dep' in choice) { fitSum += 1 / (1 + fitOf(choice as Cand)); fitN++; }
         choice.apply(); placed = true;
       }
       if (!placed) stuck.add(need);
