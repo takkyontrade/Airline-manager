@@ -19,10 +19,10 @@ import { debt, fleetValue, serviceLoans } from './finance';
 import { allocateSlots } from './slots';
 import { crewedPlanes, graduateTrainees, traineeCount } from './staff';
 import {
-  autoSchedule, baseCostMonthly, dayCount, INITIAL_SLOTS, legMinutes, opsCostMonthly, routeWeekly,
+  autoSchedule, baseCostMonthly, dayCount, INITIAL_SLOTS, POLICY_LEVEL, legMinutes, opsCostMonthly, routeWeekly,
   scheduleStale, simulateDelays, validateRotation,
 } from './schedule';
-import type { CabinLayout, GameState, MaintLevel, MonthCosts, MonthReport, Plane, Route, RouteResult, SchedulePolicy, StatPoint } from './types';
+import type { CabinLayout, PricingMode, RouteGroup, GameState, MaintLevel, MonthCosts, MonthReport, Plane, Route, RouteResult, SchedulePolicy, StatPoint } from './types';
 import { fail, formatYen, nextId, ok, rng, withNews, type Result } from './util';
 import { allianceMembers, isTrunk, competitors, pairKey, partners, rivalCargoWeeklyT, updatePressure, type Competitor } from './rivals';
 import { fareBand, GROUNDINGS, HISTORY_NEWS, RAIL_OPENINGS, DEMAND_EVENTS, routeLicensing } from '../data/history';
@@ -184,13 +184,15 @@ export function closeRoute(s: GameState, routeId: string): Result {
   }, `${AIRPORT_BY_CODE[r.from].name}〜${AIRPORT_BY_CODE[r.to].name}線を廃止しました。`)));
 }
 
-export type RoutePatch = Partial<{ fareYen: number; targetWeekly: number; typeId: string | null; typePriority: string[]; policy: SchedulePolicy; cargoRateYen: number; cabin: CabinLayout; via: string | null }>;
+export type RoutePatch = Partial<{ pricing: PricingMode | null; fareYen: number; targetWeekly: number; typeId: string | null; typePriority: string[]; policy: SchedulePolicy; cargoRateYen: number; cabin: CabinLayout; via: string | null }>;
 
 export function setRoute(s: GameState, routeId: string, patch: RoutePatch): Result {
   const r = s.routes.find((x) => x.id === routeId);
   if (!r) return fail('路線が見つかりません');
-  const { via: _via, ...rest } = patch;
+  const { via: _via, pricing, ...rest } = patch;
   const next: Route = { ...r, ...rest };
+  if (pricing === null) delete next.pricing;
+  else if (pricing !== undefined) next.pricing = pricing;
   next.targetWeekly = Math.max(0, Math.min(140, Math.round(next.targetWeekly)));
   next.fareYen = Math.max(100, Math.round(next.fareYen / 10) * 10);
   if (next.cargoRateYen !== undefined) next.cargoRateYen = Math.max(1, Math.round(next.cargoRateYen));
@@ -209,6 +211,105 @@ export function setRoute(s: GameState, routeId: string, patch: RoutePatch): Resu
   // fares don't change the timetable
   const scheduleChanged = patch.targetWeekly !== undefined || patch.typeId !== undefined || patch.typePriority !== undefined || patch.policy !== undefined || patch.via !== undefined;
   return ok(scheduleChanged ? autoSchedule(s2) : s2);
+}
+
+// ---- pricing ---------------------------------------------------------------
+
+export const PRICING_LABEL: Record<PricingMode, string> = {
+  manual: '手動（金額を固定）',
+  track: '相場に追従（今の％を保つ）',
+  match: '他社に合わせる',
+  revenue: '収益重視（自動で最適化）',
+  share: 'シェア重視（他社より安く）',
+};
+
+export const pricingOf = (s: GameState, r: Route): PricingMode => r.pricing ?? s.pricingDefault ?? 'track';
+
+export const ROUTE_GROUP_LABEL: Record<RouteGroup, string> = { trunk: '幹線', local: '地方線', intl: '国際線', cargo: '貨物線' };
+
+export function routeGroup(r: Route): RouteGroup {
+  if (r.kind === 'cargo') return 'cargo';
+  if (isIntlRoute(r.from, r.to)) return 'intl';
+  return isTrunk(r.from, r.to) ? 'trunk' : 'local';
+}
+
+/** Average rival fare as a share of the market fare (weighted by frequency); 1 with no rivals */
+function rivalFareRatio(s: GameState, r: Route, cheapest = false): number {
+  const cs = competitors(s, r.from, r.to);
+  if (!cs.length) return 1;
+  if (cheapest) return Math.min(...cs.map((c) => c.fareMul));
+  const w = cs.reduce((n, c) => n + c.weeklyFreq, 0);
+  return cs.reduce((n, c) => n + c.fareMul * c.weeklyFreq, 0) / w;
+}
+
+/** The fare ratio that earns the most this month, given our seats */
+export function bestFareRatio(s: GameState, r: Route, fly = flyablePlanes(s)): number {
+  const ref = routeReferenceFare(r.from, r.to, s.year, s.month);
+  const wk = routeWeekly(s, r, fly);
+  const seats = wk.legs.reduce((n, l) => n + l.perWeek * planeType(l.plane).seats, 0) * WEEKS_PER_MONTH;
+  if (!seats) return r.fareYen / ref;
+  const perPax = groundCostPerPax(s.year, s.month) * (isIntlRoute(r.from, r.to) ? 1.5 : 1);
+  const band = fareBand(s.year) ?? [0.5, 2];
+  let best = 1, bestGain = -Infinity;
+  for (let x = Math.max(0.5, band[0]); x <= Math.min(2, band[1]) + 1e-9; x += 0.05) {
+    const f = routeMarket(s, { ...r, fareYen: ref * x }, fly);
+    const pax = Math.min(seats, f.marketOneWay * f.share * 2);
+    const gain = pax * (ref * x * (1 - SALES_COMMISSION) - perPax);
+    if (gain > bestGain) { bestGain = gain; best = x; }
+  }
+  return best;
+}
+
+/** Monthly: move each auto-priced route's fare (prev = last month's market fare per route) */
+export function applyPricing(s: GameState, prevRef: Record<string, number>): GameState {
+  const band = fareBand(s.year);
+  const fly = flyablePlanes(s);
+  let changed = false;
+  const routes = s.routes.map((r) => {
+    const mode = pricingOf(s, r);
+    if (r.kind === 'cargo' || mode === 'manual') return r;
+    const ref = routeReferenceFare(r.from, r.to, s.year, s.month);
+    const cur = r.fareYen / (prevRef[r.id] ?? ref);
+    let ratio = cur;
+    if (mode === 'match') ratio = cur + (rivalFareRatio(s, r) - cur) * 0.5;
+    else if (mode === 'share') ratio = cur + (Math.max(0.6, rivalFareRatio(s, r, true) * 0.95) - cur) * 0.5;
+    else if (mode === 'revenue') ratio = cur + (bestFareRatio(s, r, fly) - cur) * 0.5;
+    if (band) ratio = Math.min(band[1], Math.max(band[0], ratio));
+    const fareYen = Math.max(100, Math.round((ref * ratio) / 10) * 10);
+    if (fareYen === r.fareYen) return r;
+    changed = true;
+    return { ...r, fareYen };
+  });
+  return changed ? { ...s, routes } : s;
+}
+
+export function setPricingDefault(s: GameState, mode: PricingMode): Result {
+  return ok({ ...s, pricingDefault: mode });
+}
+
+export type BulkPatch = Partial<{ pricing: PricingMode | null; fareRatio: number; weeklyScale: number; policy: SchedulePolicy; cabin: CabinLayout }>;
+
+/** Change every route in a group at once (one reschedule at the end) */
+export function setRouteGroup(s: GameState, group: RouteGroup | 'all', patch: BulkPatch): Result {
+  const targets = s.routes.filter((r) => group === 'all' || routeGroup(r) === group);
+  if (!targets.length) return fail('対象の路線がありません');
+  let cur = s;
+  for (const r of targets) {
+    const pax = r.kind !== 'cargo';
+    const p: RoutePatch = {};
+    if (patch.pricing !== undefined && pax) p.pricing = patch.pricing;
+    if (patch.fareRatio !== undefined && pax) p.fareYen = routeReferenceFare(r.from, r.to, s.year, s.month) * patch.fareRatio;
+    if (patch.cabin !== undefined && pax) p.cabin = patch.cabin;
+    const res = setRoute(cur, r.id, p); // no timetable fields, so no reschedule here
+    if (!res.ok) return res;
+    cur = res.state;
+    const sched: Partial<Route> = {};
+    if (patch.weeklyScale !== undefined) sched.targetWeekly = Math.min(140, Math.max(1, Math.round(r.targetWeekly * patch.weeklyScale)));
+    if (patch.policy !== undefined && POLICY_LEVEL[patch.policy] <= s.opsLevel) sched.policy = patch.policy;
+    cur = { ...cur, routes: cur.routes.map((x) => (x.id === r.id ? { ...x, ...sched } : x)) };
+  }
+  const resched = patch.weeklyScale !== undefined || patch.policy !== undefined;
+  return ok(withNews(resched ? autoSchedule(cur) : cur, `${group === 'all' ? '全路線' : ROUTE_GROUP_LABEL[group]}（${targets.length}路線）をまとめて変更しました。`));
 }
 
 // ---- market ----------------------------------------------------------------
@@ -626,6 +727,12 @@ export function advanceMonth(s0: GameState): GameState {
     reputation: next.reputation, onTime: report.onTime,
   };
   next = { ...next, stats: [...(s.stats ?? []), stat] };
+  // fares for the new month follow the market and each route's pricing policy
+  {
+    const prevRef: Record<string, number> = {};
+    for (const r of next.routes) prevRef[r.id] = routeReferenceFare(r.from, r.to, s.year, s.month);
+    next = applyPricing(next, prevRef);
+  }
 
   if (month === 1) {
     for (const a of AIRPORTS) if (a.openYear === year) next = withNews(next, `${a.name}空港（${a.city}）が開港し、定期便を飛ばせるようになりました。`, 'history');

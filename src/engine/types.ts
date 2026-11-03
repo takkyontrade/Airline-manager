@@ -86,7 +86,14 @@ export interface Route {
   cabin?: CabinLayout;
   /** technical (refuelling) stop, e.g. Anchorage */
   via?: string;
+  /** how the fare is set each month (undefined = the company default) */
+  pricing?: PricingMode;
 }
+
+/** manual: fixed yen / track: keep the % of the market fare / match: follow rivals / revenue: maximise profit / share: undercut rivals */
+export type PricingMode = 'manual' | 'track' | 'match' | 'revenue' | 'share';
+
+export type RouteGroup = 'trunk' | 'local' | 'intl' | 'cargo';
 
 export type CabinLayout = 'mono' | 'two' | 'three';
 
@@ -205,6 +212,8 @@ export interface GameState {
   opsLevel: number;
   /** daily movements (departures + arrivals) we may use at slot-controlled airports */
   slots: Record<string, number>;
+  /** company-wide fare policy for routes that don't set their own (default: track) */
+  pricingDefault?: PricingMode;
   /** how hard rivals are fighting back on each airport pair (0..1) */
   aiPressure?: Record<string, number>;
   usedMarket: UsedListing[];

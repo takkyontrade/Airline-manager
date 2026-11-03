@@ -5,7 +5,7 @@ import { AIRPORT_BY_CODE } from '../data/airports';
 import { AIRCRAFT_BY_ID, conversionsFor } from '../data/aircraft';
 import {
   closeRoute, flyablePlanes, formatYen, planeAge, planeType, planesOnRoute,
-  routeMarket, setMaintLevel, setRoute, type Result,
+  routeMarket, setMaintLevel, setRoute, PRICING_LABEL, pricingOf, type Result,
   addCodeshare, allianceEligibility, companyRisk, ALLIANCE_FEE_MONTHLY, CODESHARE_FEE_MONTHLY, codeshareEligibility,
   joinAlliance, leaveAlliance, removeCodeshare,
 } from '../engine/sim';
@@ -24,7 +24,8 @@ import {
   canFly, cargoReferenceRate, TECH_STOPS, CONVERSION_MONTHS, conversionCostYen, etopsMinutes, HEAVY_CHECK_HOURS, isIntlRoute, heavyCheckCost, HIRE_LIMIT_PER_MONTH, hireCost, MAINT_LEVELS,
   newPriceYen, pilotWage, routeDistance, TRAINING_MONTHS, trainingCost,
 } from '../engine/model';
-import type { CabinLayout, GameState, MaintLevel, MonthReport, Plane, Route, SchedulePolicy } from '../engine/types';
+import type { CabinLayout, PricingMode, GameState, MaintLevel, MonthReport, Plane, Route, SchedulePolicy } from '../engine/types';
+import { PRICING_HELP } from './pricingHelp';
 import { CABIN_LABEL, cabinAcceptance, premiumFareMul } from '../engine/brand';
 import { planeLivery } from './BrandPanel';
 import { PlaneSilhouette } from './PlaneSilhouette';
@@ -69,11 +70,23 @@ export function RouteDetail({ s, r, apply }: { s: GameState; r: Route; apply: Ap
               <span className="muted">相場 {num(refRate)}円/kg</span>
             </label>
           ) : (
-            <label>
-              運賃（片道）
-              <NumInput min={0} value={r.fareYen} onCommit={(v) => apply(setRoute(s, r.id, { fareYen: v }))} />
-              <span className="muted">相場 {num(f.refFare)}円{fareBand(s.year) && `（認可運賃：相場の${Math.round(fareBand(s.year)![0] * 100)}〜${Math.round(fareBand(s.year)![1] * 100)}%）`}</span>
-            </label>
+            <>
+              <label>
+                運賃の決め方
+                <select value={r.pricing ?? ''} onChange={(e) => apply(setRoute(s, r.id, { pricing: (e.target.value || null) as PricingMode | null }))}>
+                  <option value="">会社の方針（{PRICING_LABEL[s.pricingDefault ?? 'track']}）</option>
+                  {(Object.keys(PRICING_LABEL) as PricingMode[]).map((k) => <option key={k} value={k}>{PRICING_LABEL[k]}</option>)}
+                </select>
+                <span className="muted small-text">{PRICING_HELP[pricingOf(s, r)]}</span>
+              </label>
+              <label>
+                運賃（片道）
+                {['manual', 'track'].includes(pricingOf(s, r))
+                  ? <NumInput min={0} value={r.fareYen} onCommit={(v) => apply(setRoute(s, r.id, { fareYen: v }))} />
+                  : <strong>{num(r.fareYen)}円 <span className="muted small-text">（毎月自動で調整）</span></strong>}
+                <span className="muted">相場 {num(f.refFare)}円の{Math.round((r.fareYen / f.refFare) * 100)}%{fareBand(s.year) && `（認可運賃：相場の${Math.round(fareBand(s.year)![0] * 100)}〜${Math.round(fareBand(s.year)![1] * 100)}%）`}</span>
+              </label>
+            </>
           )}
           <label>
             目標：週の往復便数

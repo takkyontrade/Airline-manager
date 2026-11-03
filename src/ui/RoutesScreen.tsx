@@ -6,9 +6,10 @@ import { routeDistance } from '../engine/model';
 import type { GameState, Route } from '../engine/types';
 import { RouteDetail } from './panels';
 import { CircuitsBox } from './CircuitsBox';
+import { BulkBox } from './BulkBox';
 import { planeType } from '../engine/sim';
 
-type Sel = { kind: 'route'; id: string } | { kind: 'new' } | { kind: 'circuits' } | null;
+type Sel = { kind: 'route'; id: string } | { kind: 'new' } | { kind: 'circuits' } | { kind: 'bulk' } | null;
 const name = (c: string) => AIRPORT_BY_CODE[c]?.name ?? c;
 /** board names: drop the bracketed part, e.g. 千歳（新千歳） → 千歳 */
 const short = (c: string) => name(c).replace(/（.*?）/g, '');
@@ -77,6 +78,7 @@ export function RoutesScreen({ s, apply, onHover }: { s: GameState; apply: (r: R
         <div className="board-actions">
           <button className={sel?.kind === 'new' ? '' : 'secondary'} onClick={() => setSel({ kind: 'new' })}>＋ 新しい路線</button>
           <button className={sel?.kind === 'circuits' ? '' : 'secondary'} onClick={() => setSel({ kind: 'circuits' })}>周回ルート{(s.circuits?.length ?? 0) > 0 && `（${s.circuits!.length}）`}</button>
+          <button className={sel?.kind === 'bulk' ? '' : 'secondary'} onClick={() => setSel({ kind: 'bulk' })}>まとめて変更</button>
         </div>
       </div>
       <div className="route-pane">
@@ -90,6 +92,7 @@ export function RoutesScreen({ s, apply, onHover }: { s: GameState; apply: (r: R
         {sel?.kind === 'route' && !route && <p className="muted">この路線は廃止されました。左から選んでください。</p>}
         {sel?.kind === 'new' && <NewRoute s={s} apply={apply} onOpened={(id) => setSel({ kind: 'route', id })} />}
         {sel?.kind === 'circuits' && <CircuitsBox s={s} apply={apply} />}
+        {sel?.kind === 'bulk' && <BulkBox s={s} apply={apply} />}
       </div>
     </div>
   );

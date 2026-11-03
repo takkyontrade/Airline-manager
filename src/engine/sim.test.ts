@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'vitest';
-import { addCircuit, advanceMonth, closeRoute, removeCircuit, setCircuit, joinAlliance, newGame, openRoute, routeMarket, setOps, setRoute, START_CASH } from './sim';
+import { applyPricing, bestFareRatio, setRouteGroup, addCircuit, advanceMonth, closeRoute, removeCircuit, setCircuit, joinAlliance, newGame, openRoute, routeMarket, setOps, setRoute, START_CASH } from './sim';
 import { allocateSlots } from './slots';
 import { competitors } from './rivals';
 import { circuitScheduled, setPlaneBase, autoSchedule, scheduledWeekly, setPlaneSchedule, slotUsage, validateRotation, legViews } from './schedule';
 import { acquireUsed, disposePlane, orderNew, orderNewBulk, leadMonths, startConversion, startHeavyCheck } from './fleet';
 import { creditLimit, takeLoan, repayLoan } from './finance';
 import { crewedPlanes, hirePilots, trainPilots } from './staff';
-import { accidentRatePerFlight, canFly, HEAVY_CHECK_HOURS, intlReferenceFare, riskFactor, marketDemand, referenceFare, routeDistance } from './model';
+import { accidentRatePerFlight, canFly, HEAVY_CHECK_HOURS, intlReferenceFare, routeReferenceFare, riskFactor, marketDemand, referenceFare, routeDistance } from './model';
 import { AIRCRAFT_BY_ID, ratingOf } from '../data/aircraft';
 import type { GameState, UsedListing } from './types';
 import { aircraftTour, cabinAcceptance, farewellCandidates, farewellFlight, paintSpecial } from './brand';
@@ -598,5 +598,44 @@ describe('rival slots', () => {
     const few = weekly(s);
     const many = weekly({ ...s, slots: { ...s.slots, HND: 100 } });
     expect(many).toBeLessThan(few * 0.8);
+  });
+});
+
+describe('pricing', () => {
+  const at = (year: number) => {
+    let s: GameState = { ...newGame('t', 'HND', 1, { startYear: 1960 }), year: 2005, month: 6, cash: 1e12, slots: { HND: 200, ITM: 200, NRT: 20 } };
+    let id: string;
+    [s, id] = withListing(s, 'b737-800', 1);
+    s = must(acquireUsed(s, id, 'buy'));
+    s = { ...s, pilots: { ...s.pilots, 'b737-800': { rated: 20, training: [] } } };
+    s = must(openRoute(s, 'HND', 'CTS', { skipLicense: true }));
+    return { ...s, year };
+  };
+  test('tracking keeps the share of the market fare as prices rise', () => {
+    let s = at(2005);
+    const r = s.routes[0];
+    s = must(setRoute(s, r.id, { fareYen: Math.round(r.fareYen * 1.1), pricing: 'track' }));
+    const before = s.routes[0].fareYen;
+    const moved = applyPricing({ ...s, year: 2015 }, { [r.id]: routeReferenceFare(r.from, r.to, 2005, 6) });
+    const ratio = moved.routes[0].fareYen / routeReferenceFare(r.from, r.to, 2015, 6);
+    expect(ratio).toBeCloseTo(before / routeReferenceFare(r.from, r.to, 2005, 6), 1);
+  });
+  test('manual fares stay put; revenue mode finds a fare', () => {
+    let s = at(2005);
+    const id = s.routes[0].id;
+    s = must(setRoute(s, id, { pricing: 'manual' }));
+    expect(applyPricing({ ...s, year: 2015 }, { [id]: 1 }).routes[0].fareYen).toBe(s.routes[0].fareYen);
+    const x = bestFareRatio(s, s.routes[0]);
+    expect(x).toBeGreaterThanOrEqual(0.5);
+    expect(x).toBeLessThanOrEqual(2);
+  });
+  test('a route group can be changed at once', () => {
+    let s = at(2005);
+    s = must(openRoute(s, 'HND', 'KMQ', { skipLicense: true }));
+    s = must(setRouteGroup(s, 'trunk', { pricing: 'share', fareRatio: 0.9 }));
+    const trunk = s.routes.find((r) => r.to === 'CTS')!, local = s.routes.find((r) => r.to === 'KMQ')!;
+    expect(trunk.pricing).toBe('share');
+    expect(local.pricing).toBeUndefined();
+    expect(trunk.fareYen / routeReferenceFare('HND', 'CTS', 2005, 6)).toBeCloseTo(0.9, 1);
   });
 });
