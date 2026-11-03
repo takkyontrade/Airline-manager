@@ -89,6 +89,25 @@ export function RouteDetail({ s, r, apply }: { s: GameState; r: Route; apply: Ap
               {ownedTypes.filter((id) => !!AIRCRAFT_BY_ID[id].freighter === cargoRoute).map((id) => <option key={id} value={id} disabled={!canFly(AIRCRAFT_BY_ID[id], r.from, r.to, s.year, r.via).ok}>{AIRCRAFT_BY_ID[id].name}</option>)}
             </select>
           </label>
+          {!r.typeId && (
+            <div className="prio">
+              <span>機種の優先順位</span>
+              <div className="prio-list">
+                {(r.typePriority ?? []).map((id, i, arr) => (
+                  <span key={id} className="chip">
+                    {i + 1}. {AIRCRAFT_BY_ID[id]?.name ?? id}
+                    {i > 0 && <button className="link" title="上げる" onClick={() => { const a = [...arr]; [a[i - 1], a[i]] = [a[i], a[i - 1]]; apply(setRoute(s, r.id, { typePriority: a })); }}>↑</button>}
+                    <button className="link" title="外す" onClick={() => apply(setRoute(s, r.id, { typePriority: arr.filter((x) => x !== id) }))}>×</button>
+                  </span>
+                ))}
+                <select value="" onChange={(e) => e.target.value && apply(setRoute(s, r.id, { typePriority: [...(r.typePriority ?? []), e.target.value] }))}>
+                  <option value="">＋ 機種を追加</option>
+                  {ownedTypes.filter((id) => !!AIRCRAFT_BY_ID[id].freighter === cargoRoute && !(r.typePriority ?? []).includes(id) && canFly(AIRCRAFT_BY_ID[id], r.from, r.to, s.year, r.via).ok).map((id) => <option key={id} value={id}>{AIRCRAFT_BY_ID[id].name}</option>)}
+                </select>
+              </div>
+              <span className="muted small-text">{(r.typePriority ?? []).length ? '上の機種から順に割り当て、空いていなければ他の機種も使います' : '未設定なら、需要の多い路線ほど大きい機体を優先します'}</span>
+            </div>
+          )}
           <label>
             ダイヤの方針
             <select value={r.policy} onChange={(e) => apply(setRoute(s, r.id, { policy: e.target.value as SchedulePolicy }))}>

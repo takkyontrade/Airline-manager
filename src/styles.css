@@ -262,3 +262,6 @@ main.full > .tabs { flex: 0 0 auto; }
 .chart-svg .cross { stroke: #ffffff70; stroke-width: 1; stroke-dasharray: 3 3; }
 .chart-svg .dot { fill: var(--accent2); stroke: var(--panel); stroke-width: 2; }
 .chart-svg .tick { fill: var(--muted); font-size: 11px; }
+.prio { display: flex; flex-direction: column; gap: 4px; grid-column: 1 / -1; }
+.prio-list { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.prio-list .chip { display: inline-flex; align-items: center; gap: 4px; }

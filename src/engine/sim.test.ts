@@ -558,3 +558,25 @@ describe('bulk orders', () => {
     expect(r.planes.filter((p) => p.status === 'onOrder').length).toBeLessThan(20);
   });
 });
+
+describe('aircraft type priority', () => {
+  function fleet() {
+    let s: GameState = { ...newGame('t', 'HND', 1, { startYear: 1972 }), slots: { HND: 200, ITM: 200, NRT: 20 } };
+    for (const t of ['l1011', 'ys11']) { let id: string; [s, id] = withListing(s, t, 1); s = must(acquireUsed(s, id, 'buy')); }
+    s = must(openRoute(s, 'HND', 'HAC', { skipLicense: true }));
+    s = must(setRoute(s, s.routes[0].id, { targetWeekly: 7 }));
+    s = must(openRoute(s, 'HND', 'CTS', { skipLicense: true }));
+    s = must(setRoute(s, s.routes[1].id, { targetWeekly: 7 }));
+    return s;
+  }
+  const typeOn = (s: GameState, routeId: string) => s.planes.find((p) => p.schedule.some((l) => l.routeId === routeId))?.typeId;
+  test('without a priority the busy trunk route gets the big plane', () => {
+    const s = fleet();
+    expect(typeOn(s, s.routes[1].id)).toBe('l1011');
+  });
+  test('a priority list is followed', () => {
+    let s = fleet();
+    s = must(setRoute(s, s.routes[1].id, { typePriority: ['ys11'] }));
+    expect(typeOn(s, s.routes[1].id)).toBe('ys11');
+  });
+});

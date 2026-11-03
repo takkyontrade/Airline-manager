@@ -72,6 +72,8 @@ export interface Route {
   targetWeekly: number;
   /** aircraft type the auto-scheduler should use (null = any suitable) */
   typeId: string | null;
+  /** preferred aircraft types, best first (the auto-scheduler tries these before others) */
+  typePriority?: string[];
   policy: SchedulePolicy;
   fareYen: number;
   openedYear: number;

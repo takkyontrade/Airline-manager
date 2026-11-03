@@ -2,7 +2,7 @@
 // and the delay simulation that produces on-time performance.
 import { AIRPORT_BY_CODE, isForeign } from '../data/airports';
 import { econ, yearFrac } from '../data/economy';
-import { canFly, ISLANDS, routeBlockHours, routeDistance, turnaroundHours } from './model';
+import { canFly, ISLANDS, marketDemand, routeBlockHours, routeDistance, turnaroundHours } from './model';
 import { heavyCheckOverdue, planeType } from './fleet';
 import { GROUNDINGS } from '../data/history';
 import type { Circuit, GameState, Leg, Plane, Route, SchedulePolicy } from './types';
@@ -241,7 +241,7 @@ interface GreedyOpts {
   /** order in which routes take turns */
   order: 'long' | 'short' | 'need' | 'shuffle';
   /** which of the planes that could fly the next round trip gets it */
-  pick: 'first' | 'idle' | 'packed' | 'small' | 'early';
+  pick: 'fit' | 'first' | 'idle' | 'packed' | 'small' | 'early';
   /** plane order used for ties and for 'first' */
   planes: 'big' | 'small';
   seed?: number;
@@ -253,13 +253,13 @@ interface GreedyOpts {
 function scheduleVariants(opsLevel: number): GreedyOpts[] {
   const all: GreedyOpts[] = [];
   for (const order of ['long', 'short', 'need'] as const)
-    for (const pick of ['first', 'idle', 'packed', 'small', 'early'] as const)
+    for (const pick of ['fit', 'first', 'idle', 'packed', 'small', 'early'] as const)
       for (const planes of ['big', 'small'] as const) all.push({ order, pick, planes });
   for (const night of [0.3, 0.6])
     for (const pick of ['first', 'idle', 'early'] as const) all.push({ order: 'need', pick, planes: 'big', night });
   const base = all[0];
   if (opsLevel <= 0) return [base];
-  if (opsLevel === 1) return [base, ...all.filter((o) => (o.planes === 'big' && o.order === 'long' && o.pick !== 'first') || (o.night === 0.3 && o.pick === 'first'))];
+  if (opsLevel === 1) return [base, ...all.filter((o) => o !== base && ((o.planes === 'big' && o.order === 'long') || (o.night === 0.3 && o.pick === 'first')))];
   if (opsLevel === 2) return all.filter((o) => (o.order !== 'need' || o.planes === 'big') && (o.night === undefined || o.pick === 'first'));
   return [...all, ...Array.from({ length: 4 }, (_, i): GreedyOpts => ({ order: 'shuffle', pick: (['idle', 'packed', 'small', 'early'] as const)[i], planes: i % 2 ? 'small' : 'big', seed: i + 1 }))];
 }
@@ -299,6 +299,12 @@ function greedySchedule(s: GameState, opt: GreedyOpts): { state: GameState; scor
 
   const result = new Map<string, Plane>();
   const dist = (n: Need) => routeDistance(n.route.from, n.route.to);
+  // how busy each route is (0 = quietest, 1 = busiest): big planes go to busy routes
+  const demandOf = new Map(s.routes.map((r) => [r.id, marketDemand(r.from, r.to, s.year, s.month)]));
+  const byDemand = [...s.routes].sort((a, b) => demandOf.get(a.id)! - demandOf.get(b.id)!);
+  const demandRank = new Map(byDemand.map((r, i) => [r.id, byDemand.length > 1 ? i / (byDemand.length - 1) : 1]));
+  const maxSeats = Math.max(1, ...unlocked.map((p) => planeType(p).seats));
+  let fitSum = 0, fitN = 0;
   if (opt.order === 'long') needs.sort((a, b) => dist(b) - dist(a));
   else if (opt.order === 'short') needs.sort((a, b) => dist(a) - dist(b));
   else if (opt.order === 'need') needs.sort((a, b) => b.remainingWeekly - a.remainingWeekly || dist(b) - dist(a));
@@ -479,7 +485,7 @@ function greedySchedule(s: GameState, opt: GreedyOpts): { state: GameState; scor
           state.time.set(p.id, back + block + turn);
           need.remainingWeekly -= perWeek;
         } });
-        if (opt.pick === 'first' || cands.length >= 12) break;
+        if ((opt.pick === 'first' && !(r.typePriority?.length)) || cands.length >= 16) break;
       }
       };
       search();
@@ -495,15 +501,24 @@ function greedySchedule(s: GameState, opt: GreedyOpts): { state: GameState; scor
       }
       const seatsOf = (c: { p: Plane }) => planeType(c.p).seats;
       const timeOf = (c: { p: Plane }) => state.time.get(c.p.id)!;
+      const want = demandRank.get(r.id) ?? 0.5;
+      const fitOf = (c: Cand) => Math.abs(seatsOf(c) / maxSeats - want);
+      const prio = r.typePriority ?? [];
+      const rank = (c: Cand) => { const i = prio.indexOf(c.p.typeId); return i < 0 ? prio.length : i; };
       const pickBy: Record<GreedyOpts['pick'], (a: Cand, b: Cand) => number> = {
+        fit: (a, b) => fitOf(a) - fitOf(b),
         first: () => 0,
         idle: (a, b) => timeOf(a) - timeOf(b),
         packed: (a, b) => timeOf(b) - timeOf(a),
         small: (a, b) => seatsOf(a) - seatsOf(b),
         early: (a, b) => a.dep - b.dep,
       };
-      const choice = cands.length ? [...cands].sort(pickBy[opt.pick])[0] : longCands[0];
-      if (choice) { choice.apply(); placed = true; }
+      // the player's type priority comes first, then this variant's rule
+      const choice = cands.length ? [...cands].sort((a, b) => rank(a) - rank(b) || pickBy[opt.pick](a, b))[0] : longCands[0];
+      if (choice) {
+        if ('dep' in choice) { fitSum += 1 - fitOf(choice as Cand); fitN++; }
+        choice.apply(); placed = true;
+      }
       if (!placed) stuck.add(need);
     }
     }
@@ -515,7 +530,7 @@ function greedySchedule(s: GameState, opt: GreedyOpts): { state: GameState; scor
   const used = planes.filter((p) => p.schedule.length > 0).length;
   // most flights first; then fewest planes busy (spares absorb checks and delays)
   const complete = left < 1e-9 && circuitPlaced >= (s.circuits ?? []).reduce((a, c) => a + c.targetWeekly * c.stops.length / 2, 0) - 1e-9;
-  return { state: { ...s, planes: s.planes.map((p) => result.get(p.id) ?? p) }, score: placedFlights * 1000 - used, complete };
+  return { state: { ...s, planes: s.planes.map((p) => result.get(p.id) ?? p) }, score: placedFlights * 1000 + (fitN ? (fitSum / fitN) * 200 : 0) - used, complete };
 }
 
 /**

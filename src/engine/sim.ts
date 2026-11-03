@@ -184,7 +184,7 @@ export function closeRoute(s: GameState, routeId: string): Result {
   }, `${AIRPORT_BY_CODE[r.from].name}〜${AIRPORT_BY_CODE[r.to].name}線を廃止しました。`)));
 }
 
-export type RoutePatch = Partial<{ fareYen: number; targetWeekly: number; typeId: string | null; policy: SchedulePolicy; cargoRateYen: number; cabin: CabinLayout; via: string | null }>;
+export type RoutePatch = Partial<{ fareYen: number; targetWeekly: number; typeId: string | null; typePriority: string[]; policy: SchedulePolicy; cargoRateYen: number; cabin: CabinLayout; via: string | null }>;
 
 export function setRoute(s: GameState, routeId: string, patch: RoutePatch): Result {
   const r = s.routes.find((x) => x.id === routeId);
@@ -207,7 +207,7 @@ export function setRoute(s: GameState, routeId: string, patch: RoutePatch): Resu
   let s2: GameState = { ...s, routes: s.routes.map((x) => (x.id === routeId ? next : x)) };
   if (patch.cabin) s2 = noteCabin(s2, patch.cabin);
   // fares don't change the timetable
-  const scheduleChanged = patch.targetWeekly !== undefined || patch.typeId !== undefined || patch.policy !== undefined || patch.via !== undefined;
+  const scheduleChanged = patch.targetWeekly !== undefined || patch.typeId !== undefined || patch.typePriority !== undefined || patch.policy !== undefined || patch.via !== undefined;
   return ok(scheduleChanged ? autoSchedule(s2) : s2);
 }
 
