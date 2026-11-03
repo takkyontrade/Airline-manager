@@ -5,26 +5,28 @@ import { CABIN_LABEL } from '../engine/brand';
 import type { CabinLayout, GameState, PricingMode, RouteGroup, SchedulePolicy } from '../engine/types';
 import { PRICING_HELP } from './pricingHelp';
 import { NumInput } from './NumInput';
+import { AIRPORT_BY_CODE } from '../data/airports';
 
 const GROUPS: (RouteGroup | 'all')[] = ['all', 'trunk', 'local', 'intl', 'cargo'];
 const groupName = (g: RouteGroup | 'all') => (g === 'all' ? '全路線' : ROUTE_GROUP_LABEL[g]);
 const yen = (n: number) => `${Math.round(n / 1e6).toLocaleString()}百万円`;
 
 /** Change many routes at once, by group */
-export function BulkBox({ s, apply }: { s: GameState; apply: (r: Result) => void }) {
+export function BulkBox({ s, apply, airport = '' }: { s: GameState; apply: (r: Result) => void; airport?: string }) {
   const [group, setGroup] = useState<RouteGroup | 'all'>('all');
   const [ratio, setRatio] = useState(100);
   const fly = flyablePlanes(s);
   const rep = s.history[s.history.length - 1];
   const rows = GROUPS.map((g) => {
-    const rs = s.routes.filter((r) => g === 'all' || routeGroup(r) === g);
+    const rs = s.routes.filter((r) => (g === 'all' || routeGroup(r) === g) && (!airport || r.from === airport || r.to === airport));
     const res = rs.map((r) => rep?.routes.find((x) => x.routeId === r.id)).filter((x) => !!x);
     const seats = res.reduce((n, x) => n + x.seats, 0), pax = res.reduce((n, x) => n + x.pax, 0);
     const pr = rs.filter((r) => r.kind !== 'cargo');
     const fare = pr.length ? pr.reduce((n, r) => n + r.fareYen / routeMarket(s, r, fly).refFare, 0) / pr.length : 0;
     return { g, n: rs.length, weekly: rs.reduce((n, r) => n + r.targetWeekly, 0), lf: seats ? pax / seats : 0, profit: res.reduce((n, x) => n + x.revenue - x.cost, 0), fare };
   });
-  const go = (p: BulkPatch) => apply(setRouteGroup(s, group, p));
+  const go = (p: BulkPatch) => apply(setRouteGroup(s, group, p, airport || undefined));
+  const where = airport ? `${AIRPORT_BY_CODE[airport]?.name ?? airport}発着の` : '';
   const cargo = group === 'cargo';
   return (
     <div className="card">
@@ -51,7 +53,8 @@ export function BulkBox({ s, apply }: { s: GameState; apply: (r: Result) => void
         </tbody>
       </table>
 
-      <h3>{groupName(group)}をまとめて</h3>
+      <h3>{where}{groupName(group)}をまとめて</h3>
+      {airport && <p className="muted small-text">左の出発案内で選んだ空港の路線だけが対象です。</p>}
       <div className="grid2">
         {!cargo && (
           <label>

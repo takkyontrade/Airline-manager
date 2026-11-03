@@ -290,8 +290,8 @@ export function setPricingDefault(s: GameState, mode: PricingMode): Result {
 export type BulkPatch = Partial<{ pricing: PricingMode | null; fareRatio: number; weeklyScale: number; policy: SchedulePolicy; cabin: CabinLayout }>;
 
 /** Change every route in a group at once (one reschedule at the end) */
-export function setRouteGroup(s: GameState, group: RouteGroup | 'all', patch: BulkPatch): Result {
-  const targets = s.routes.filter((r) => group === 'all' || routeGroup(r) === group);
+export function setRouteGroup(s: GameState, group: RouteGroup | 'all', patch: BulkPatch, airport?: string): Result {
+  const targets = s.routes.filter((r) => (group === 'all' || routeGroup(r) === group) && (!airport || r.from === airport || r.to === airport));
   if (!targets.length) return fail('対象の路線がありません');
   let cur = s;
   for (const r of targets) {
@@ -309,7 +309,7 @@ export function setRouteGroup(s: GameState, group: RouteGroup | 'all', patch: Bu
     cur = { ...cur, routes: cur.routes.map((x) => (x.id === r.id ? { ...x, ...sched } : x)) };
   }
   const resched = patch.weeklyScale !== undefined || patch.policy !== undefined;
-  return ok(withNews(resched ? autoSchedule(cur) : cur, `${group === 'all' ? '全路線' : ROUTE_GROUP_LABEL[group]}（${targets.length}路線）をまとめて変更しました。`));
+  return ok(withNews(resched ? autoSchedule(cur) : cur, `${airport ? `${AIRPORT_BY_CODE[airport]?.name ?? airport}発着の` : ''}${group === 'all' ? '全路線' : ROUTE_GROUP_LABEL[group]}（${targets.length}路線）をまとめて変更しました。`));
 }
 
 // ---- market ----------------------------------------------------------------

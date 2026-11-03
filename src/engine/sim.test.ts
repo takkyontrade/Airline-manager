@@ -639,3 +639,14 @@ describe('pricing', () => {
     expect(trunk.fareYen / routeReferenceFare('HND', 'CTS', 2005, 6)).toBeCloseTo(0.9, 1);
   });
 });
+
+describe('bulk by airport', () => {
+  test('only routes at the chosen airport change', () => {
+    let s: GameState = { ...newGame('t', 'HND', 1, { startYear: 1960 }), year: 2005, month: 6, slots: { HND: 200, ITM: 200, NRT: 20 } };
+    s = must(openRoute(s, 'HND', 'CTS', { skipLicense: true }));
+    s = must(openRoute(s, 'ITM', 'FUK', { skipLicense: true }));
+    s = must(setRouteGroup(s, 'all', { pricing: 'revenue' }, 'ITM'));
+    expect(s.routes.find((r) => r.from === 'HND')!.pricing).toBeUndefined();
+    expect(s.routes.find((r) => r.from === 'ITM')!.pricing).toBe('revenue');
+  });
+});

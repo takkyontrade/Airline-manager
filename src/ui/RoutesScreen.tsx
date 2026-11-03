@@ -43,7 +43,15 @@ export function RoutesScreen({ s, apply, onHover }: { s: GameState; apply: (r: R
   const [sel, setSel] = useState<Sel>(s.routes.length ? { kind: 'route', id: s.routes[s.routes.length - 1].id } : { kind: 'new' });
   const route = sel?.kind === 'route' ? s.routes.find((r) => r.id === sel.id) : undefined;
   useEffect(() => { onHover(route?.id ?? null); }, [route?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  const rows = sortedRoutes(s);
+  const [apt, setApt] = useState(() => { try { return localStorage.getItem('airline-route-apt') ?? ''; } catch { return ''; } });
+  const pickApt = (c: string) => { setApt(c); try { localStorage.setItem('airline-route-apt', c); } catch { /* ignore */ } };
+  const aptCount = new Map<string, number>();
+  for (const r of s.routes) for (const c of [r.from, r.to]) aptCount.set(c, (aptCount.get(c) ?? 0) + 1);
+  const filter = apt && aptCount.has(apt) ? apt : '';
+  const all = sortedRoutes(s);
+  const rows = filter ? all.filter((r) => r.from === filter || r.to === filter) : all;
+  // with an airport chosen, show it as the departure end
+  const ends = (r: Route): [string, string] => (filter && r.to === filter ? [r.to, r.from] : [r.from, r.to]);
   const wName = Math.min(5, Math.max(3, ...rows.flatMap((r) => [short(r.from).length, short(r.to).length])));
   return (
     <div className="routes-screen">
@@ -57,6 +65,12 @@ export function RoutesScreen({ s, apply, onHover }: { s: GameState; apply: (r: R
             }} />
           </label>
         </div>
+        <div className="board-filter">
+          <select value={filter} onChange={(e) => pickApt(e.target.value)}>
+            <option value="">すべての空港（{all.length}路線）</option>
+            {[...aptCount.entries()].sort((a, b) => b[1] - a[1]).map(([c, n]) => <option key={c} value={c}>{name(c)}（{n}路線）</option>)}
+          </select>
+        </div>
         <div className="board-row board-cols" style={{ ['--wn' as string]: wName }}>
           <span>便名</span><span>出発</span><span>到着</span><span className="r">週</span>
         </div>
@@ -67,9 +81,9 @@ export function RoutesScreen({ s, apply, onHover }: { s: GameState; apply: (r: R
             const lack = weekly < r.targetWeekly;
             return (
               <button key={r.id} style={{ ['--wn' as string]: wName }} className={`board-row ${sel?.kind === 'route' && sel.id === r.id ? 'on' : ''}`} onClick={() => setSel({ kind: 'route', id: r.id })}>
-                <Flap text={flightNumbers(s, r)[0]} width={6} className={r.kind === 'cargo' ? 'cargo' : ''} />
-                <Flap text={short(r.from)} width={wName} />
-                <Flap text={short(r.to)} width={wName} />
+                <Flap text={flightNumbers(s, r)[filter && r.to === filter ? 1 : 0]} width={6} className={r.kind === 'cargo' ? 'cargo' : ''} />
+                <Flap text={short(ends(r)[0])} width={wName} />
+                <Flap text={short(ends(r)[1])} width={wName} />
                 <Flap text={String(weekly).padStart(3)} width={3} className={`r ${lack ? 'short' : ''}`} />
               </button>
             );
@@ -92,7 +106,7 @@ export function RoutesScreen({ s, apply, onHover }: { s: GameState; apply: (r: R
         {sel?.kind === 'route' && !route && <p className="muted">この路線は廃止されました。左から選んでください。</p>}
         {sel?.kind === 'new' && <NewRoute s={s} apply={apply} onOpened={(id) => setSel({ kind: 'route', id })} />}
         {sel?.kind === 'circuits' && <CircuitsBox s={s} apply={apply} />}
-        {sel?.kind === 'bulk' && <BulkBox s={s} apply={apply} />}
+        {sel?.kind === 'bulk' && <BulkBox s={s} apply={apply} airport={filter} />}
       </div>
     </div>
   );
