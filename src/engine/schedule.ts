@@ -195,9 +195,9 @@ export const POLICY_LABEL: Record<SchedulePolicy, string> = {
 export const POLICY_LEVEL: Record<SchedulePolicy, number> = { pack: 0, even: 1, peak: 1, bank: 2 };
 export const OPS_LEVELS = [
   { label: 'なし', monthly: 0, note: '詰めて組むだけ' },
-  { label: '小', monthly: 3_000_000, note: '均等・朝夕重視が使える' },
-  { label: '中', monthly: 8_000_000, note: 'ハブ乗り継ぎ型が使える・遅延が少し減る' },
-  { label: '大', monthly: 15_000_000, note: '遅延がさらに減る' },
+  { label: '小', monthly: 3_000_000, note: '均等・朝夕重視が使える・自動ダイヤが数通り試して良い組み方を選ぶ' },
+  { label: '中', monthly: 8_000_000, note: 'ハブ乗り継ぎ型が使える・遅延が少し減る・自動ダイヤが20通りほど試す' },
+  { label: '大', monthly: 15_000_000, note: '遅延がさらに減る・自動ダイヤが30通り以上試して最善を選ぶ' },
 ];
 export const opsCostMonthly = (s: GameState) => OPS_LEVELS[s.opsLevel].monthly * econ.jpCpi(yearFrac(s.year, s.month));
 export const BASE_COST_MONTHLY = 4_000_000;
@@ -237,7 +237,41 @@ export function scheduleStale(s: GameState): boolean {
   return s.planes.some((p) => !p.locked && p.status !== 'onOrder' && (schedulable(s, p) ? p.schedule.length === 0 : p.schedule.length > 0));
 }
 
+interface GreedyOpts {
+  /** order in which routes take turns */
+  order: 'long' | 'short' | 'need' | 'shuffle';
+  /** which of the planes that could fly the next round trip gets it */
+  pick: 'first' | 'idle' | 'packed' | 'small' | 'early';
+  /** plane order used for ties and for 'first' */
+  planes: 'big' | 'small';
+  seed?: number;
+}
+
+/** The auto-scheduler variants tried; a bigger ops-planning department tries more and keeps the best */
+function scheduleVariants(opsLevel: number): GreedyOpts[] {
+  const all: GreedyOpts[] = [];
+  for (const order of ['long', 'short', 'need'] as const)
+    for (const pick of ['first', 'idle', 'packed', 'small', 'early'] as const)
+      for (const planes of ['big', 'small'] as const) all.push({ order, pick, planes });
+  const base = all[0];
+  if (opsLevel <= 0) return [base];
+  if (opsLevel === 1) return [base, ...all.filter((o) => o.planes === 'big' && o.order === 'long' && o.pick !== 'first')];
+  if (opsLevel === 2) return all.filter((o) => o.order !== 'need' || o.planes === 'big');
+  return [...all, ...Array.from({ length: 4 }, (_, i): GreedyOpts => ({ order: 'shuffle', pick: (['idle', 'packed', 'small', 'early'] as const)[i], planes: i % 2 ? 'small' : 'big', seed: i + 1 }))];
+}
+
+/** Build every plane's timetable from the route targets (locked planes keep theirs) */
 export function autoSchedule(s: GameState): GameState {
+  let best: { state: GameState; score: number } | null = null;
+  for (const opt of scheduleVariants(s.opsLevel)) {
+    const r = greedySchedule(s, opt);
+    if (!best || r.score > best.score) best = r;
+    if (r.complete) break; // everything fitted: no need to try harder
+  }
+  return best!.state;
+}
+
+function greedySchedule(s: GameState, opt: GreedyOpts): { state: GameState; score: number; complete: boolean } {
   const unlocked = s.planes.filter((p) => !p.locked && schedulable(s, p));
   // planes in the shop give their flights to the others (locked ones keep theirs for when they return)
   const resting = s.planes.filter((p) => !p.locked && p.status !== 'onOrder' && !schedulable(s, p));
@@ -260,10 +294,14 @@ export function autoSchedule(s: GameState): GameState {
   };
 
   const result = new Map<string, Plane>();
-  // longest routes first: they are the hardest to fit
-  needs.sort((a, b) => routeDistance(b.route.from, b.route.to) - routeDistance(a.route.from, a.route.to));
+  const dist = (n: Need) => routeDistance(n.route.from, n.route.to);
+  if (opt.order === 'long') needs.sort((a, b) => dist(b) - dist(a));
+  else if (opt.order === 'short') needs.sort((a, b) => dist(a) - dist(b));
+  else if (opt.order === 'need') needs.sort((a, b) => b.remainingWeekly - a.remainingWeekly || dist(b) - dist(a));
+  else { const rand = rng(opt.seed ?? 1); for (let i = needs.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [needs[i], needs[j]] = [needs[j], needs[i]]; } }
+  const wanted = needs.reduce((a, n) => a + n.remainingWeekly, 0) + (s.circuits ?? []).reduce((a, c) => a + c.targetWeekly * c.stops.length / 2, 0);
 
-  const planes = [...unlocked].sort((a, b) => planeType(b).seats - planeType(a).seats).map((p) => ({ ...p, schedule: [] as Leg[], cycleDays: undefined as number | undefined }));
+  const planes = [...unlocked].sort((a, b) => (opt.planes === 'big' ? 1 : -1) * (planeType(b).seats - planeType(a).seats)).map((p) => ({ ...p, schedule: [] as Leg[], cycleDays: undefined as number | undefined }));
   const state = { time: new Map<string, number>(), at: new Map<string, string>() };
   for (const p of planes) {
     state.time.set(p.id, 0);
@@ -283,6 +321,7 @@ export function autoSchedule(s: GameState): GameState {
   }
 
   // multi-stop circuits first: each needs one plane to fly all its legs in a day
+  let circuitPlaced = 0;
   for (const c of s.circuits ?? []) {
     const segs = circuitSegments(s, c);
     if (!segs) continue;
@@ -321,6 +360,7 @@ export function autoSchedule(s: GameState): GameState {
         p.schedule.push(...legs);
         state.time.set(p.id, ready);
         remaining -= perWeek;
+        circuitPlaced += perWeek * c.stops.length / 2;
         placed = true;
         break;
       }
@@ -340,6 +380,9 @@ export function autoSchedule(s: GameState): GameState {
       // a "daily" round trip covers 7 per week; the last one may run on fewer days
       const perWeek = Math.min(7, need.remainingWeekly);
       let placed = false;
+      type Cand = { p: Plane; dep: number; apply: () => void };
+      const cands: Cand[] = [];
+      const longCands: { p: Plane; apply: () => void }[] = [];
       // if no plane is based at either end, move an idle plane there
       if (!planes.some((p) => (p.base === r.from || p.base === r.to) && suits(p, r) && (!r.typeId || p.typeId === r.typeId) && canFly(planeType(p), r.from, r.to, s.year, r.via).ok)) {
         const idle = planes.find((p) => p.schedule.length === 0 && !p.baseFixed && suits(p, r) && (!r.typeId || p.typeId === r.typeId) && canFly(planeType(p), r.from, r.to, s.year, r.via).ok);
@@ -391,37 +434,56 @@ export function autoSchedule(s: GameState): GameState {
           const touchesL: Record<string, number> = {};
           for (const c of [r.from, r.to]) if (c in slotLeft) touchesL[c] = 2 / cyc.days;
           if (slotDays(7, touchesL) === null) continue;
-          takeSlots(DAILY, touchesL);
-          p.schedule.push(...cyc.legs);
-          p.cycleDays = cyc.days;
-          state.time.set(p.id, Infinity);
-          need.remainingWeekly -= 7 / cyc.days;
-          placed = true;
-          break;
+          longCands.push({ p, apply: () => {
+            takeSlots(DAILY, touchesL);
+            p.schedule.push(...cyc.legs);
+            p.cycleDays = cyc.days;
+            state.time.set(p.id, Infinity);
+            need.remainingWeekly -= 7 / cyc.days;
+          } });
+          continue;
         }
         // slots: each round trip uses 2 movements at each slot airport it touches
         const touches: Record<string, number> = {};
         for (const c of [r.from, r.to]) if (c in slotLeft) touches[c] = 2;
         const mask = slotDays(perWeek, touches);
         if (mask === null) continue;
-        takeSlots(mask, touches);
-        const arr = chosen + block;
-        const back = Math.ceil(Math.max(arr + turn, openA) / 5) * 5;
-        p.schedule.push({ routeId: r.id, dir: outDir, dep: chosen, days: mask }, { routeId: r.id, dir: (1 - outDir) as 0 | 1, dep: back, days: mask });
-        note(`${r.id}:${outDir}`, p.base, chosen);
-        note(`${r.id}:${1 - outDir}`, away, back);
-        state.time.set(p.id, back + block + turn);
-        need.remainingWeekly -= perWeek;
-        placed = true;
-        break;
+        const dep = chosen;
+        cands.push({ p, dep, apply: () => {
+          takeSlots(mask, touches);
+          const arr = dep + block;
+          const back = Math.ceil(Math.max(arr + turn, openA) / 5) * 5;
+          p.schedule.push({ routeId: r.id, dir: outDir, dep, days: mask }, { routeId: r.id, dir: (1 - outDir) as 0 | 1, dep: back, days: mask });
+          note(`${r.id}:${outDir}`, p.base, dep);
+          note(`${r.id}:${1 - outDir}`, away, back);
+          state.time.set(p.id, back + block + turn);
+          need.remainingWeekly -= perWeek;
+        } });
+        if (opt.pick === 'first' || cands.length >= 12) break;
       }
+      const seatsOf = (c: { p: Plane }) => planeType(c.p).seats;
+      const timeOf = (c: { p: Plane }) => state.time.get(c.p.id)!;
+      const pickBy: Record<GreedyOpts['pick'], (a: Cand, b: Cand) => number> = {
+        first: () => 0,
+        idle: (a, b) => timeOf(a) - timeOf(b),
+        packed: (a, b) => timeOf(b) - timeOf(a),
+        small: (a, b) => seatsOf(a) - seatsOf(b),
+        early: (a, b) => a.dep - b.dep,
+      };
+      const choice = cands.length ? [...cands].sort(pickBy[opt.pick])[0] : longCands[0];
+      if (choice) { choice.apply(); placed = true; }
       if (!placed) stuck.add(need);
     }
     }
   }
   for (const p of planes) result.set(p.id, { ...p, schedule: p.schedule.sort((a, b) => a.dep - b.dep) });
   for (const p of resting) result.set(p.id, { ...p, schedule: [], cycleDays: undefined });
-  return { ...s, planes: s.planes.map((p) => result.get(p.id) ?? p) };
+  const left = needs.reduce((a, n) => a + n.remainingWeekly, 0);
+  const placedFlights = wanted - (s.circuits ?? []).reduce((a, c) => a + c.targetWeekly * c.stops.length / 2, 0) - left + circuitPlaced;
+  const used = planes.filter((p) => p.schedule.length > 0).length;
+  // most flights first; then fewest planes busy (spares absorb checks and delays)
+  const complete = left < 1e-9 && circuitPlaced >= (s.circuits ?? []).reduce((a, c) => a + c.targetWeekly * c.stops.length / 2, 0) - 1e-9;
+  return { state: { ...s, planes: s.planes.map((p) => result.get(p.id) ?? p) }, score: placedFlights * 1000 - used, complete };
 }
 
 /**
