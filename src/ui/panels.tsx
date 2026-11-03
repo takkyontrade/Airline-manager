@@ -9,7 +9,7 @@ import {
   addCodeshare, allianceEligibility, companyRisk, ALLIANCE_FEE_MONTHLY, CODESHARE_FEE_MONTHLY, codeshareEligibility,
   joinAlliance, leaveAlliance, removeCodeshare,
 } from '../engine/sim';
-import { autoSchedule, OPS_LEVELS, POLICY_LABEL, POLICY_LEVEL, scheduledWeekly, suits, validateRotation } from '../engine/schedule';
+import { autoSchedule, hhmm, legViews, OPS_LEVELS, POLICY_LABEL, POLICY_LEVEL, scheduledWeekly, suits, validateRotation } from '../engine/schedule';
 
 /** after a plane goes into the shop, give its flights to the others */
 const resched = (r: Result): Result => (r.ok ? { ok: true, state: autoSchedule(r.state) } : r);
@@ -175,60 +175,111 @@ function contractLabel(p: Plane) {
 
 export function FleetPanel({ s, apply }: { s: GameState; apply: Apply }) {
   const fly = flyablePlanes(s);
+  const [open, setOpen] = useState<string | null>(null);
+  const [folded, setFolded] = useState<Record<string, boolean>>({});
   if (s.planes.length === 0) return <p className="hint">機体がありません。「機材市場」で発注するか、中古機を購入・リースしましょう。</p>;
+  const groups = new Map<string, Plane[]>();
+  for (const p of s.planes) groups.set(p.typeId, [...(groups.get(p.typeId) ?? []), p]);
+  const sorted = [...groups.entries()].sort((a, b) => b[1].length - a[1].length || AIRCRAFT_BY_ID[a[0]].name.localeCompare(AIRCRAFT_BY_ID[b[0]].name));
   return (
     <div className="list">
-      {s.planes.map((p) => {
-        const t = planeType(p);
-        const terms = disposalTerms(s, p);
-        const isD = nextCheckIsD(p);
-        const wet = p.lease?.kind === 'wet';
+      {sorted.map(([typeId, list]) => {
+        const t = AIRCRAFT_BY_ID[typeId];
+        const flying = list.filter((p) => fly.has(p.id)).length;
+        const order = list.filter((p) => p.status === 'onOrder').length;
+        const shop = list.filter((p) => p.status === 'heavyCheck' || p.status === 'shop').length;
+        const idle = list.length - flying - order - shop;
+        const isFolded = folded[typeId];
         return (
-          <div key={p.id} className="card">
-            <div className="card-head">
-              <PlaneSilhouette kind={t.silhouette} width={64} livery={planeLivery(s, p)} />
-              <strong>{t.name}</strong>{p.specialLivery && p.specialLivery.untilYM >= nowYM(s) && <span className="tag">{p.specialLivery.name}</span>}
-              <span className="muted">{p.regNo}</span>
-              {statusLabel(s, p, fly.has(p.id))}
-            </div>
-            <div className="small-text muted">
-              {p.status === 'onOrder' ? `${p.builtYear}年製（予定）` : `機齢${planeAge(p, s.year)}年`} ／ {contractLabel(p)}
-            </div>
-            {p.status !== 'onOrder' && !wet && (
-              <div className="small-text">
-                状態 <Meter v={p.condition} /> {Math.round(p.condition)} ／ 総飛行 {num(p.totalHours)}h ／
-                次の{isD ? 'Dチェック' : 'Cチェック'}まで <span className={heavyCheckDue(p) ? 'neg' : ''}>{num(Math.max(0, HEAVY_CHECK_HOURS - p.hoursSinceHeavy))}h</span>
-              </div>
-            )}
-            <div className="row">
-              <BaseSelect s={s} p={p} apply={apply} />
-              {p.status !== 'onOrder' && <span className="small-text muted">1日{p.schedule.length}便{p.locked ? '（手動・固定）' : ''}</span>}
-              {p.status === 'active' && !wet && (
-                <button className="secondary small" onClick={() => {
-                  const cost = heavyCheckCost(t, isD, s.year, s.month);
-                  if (confirm(`今月から${isD ? 'Dチェック（2か月）' : 'Cチェック（1か月）'}に入れますか？ 費用 ${formatYen(cost)}`)) apply(resched(startHeavyCheck(s, p.id)));
-                }}>重整備に入れる</button>
-              )}
-              {p.status === 'active' && !p.lease && conversionsFor(p.typeId, s.year).map((to) => (
-                <button key={to.id} className="secondary small" title={planeAge(p, s.year) < 8 ? '機齢8年以上が対象です' : ''} disabled={planeAge(p, s.year) < 8} onClick={() => {
-                  const cost = conversionCostYen(to, s.year, s.month);
-                  if (confirm(`${to.name}に改修しますか？ 費用 ${formatYen(cost)}、${CONVERSION_MONTHS}か月運休します。改修後は貨物路線専用（${to.cargoT}t）になります。`)) apply(resched(startConversion(s, p.id, to.id)));
-                }}>貨物機に改修（{to.name.replace(/（.*）/, '')}）</button>
-              ))}
-              {p.status !== 'heavyCheck' && p.status !== 'shop' && (
-                <button className="danger small" onClick={() => {
-                  const msg = p.status === 'onOrder'
-                    ? '発注をキャンセルしますか？（手付金は戻りません）'
-                    : terms.cash >= 0 ? `${terms.label}しますか？（${formatYen(terms.cash)}が入ります）` : `${terms.label}しますか？（費用 ${formatYen(-terms.cash)}）`;
-                  if (confirm(msg)) apply(disposePlane(s, p.id));
-                }}>{terms.label}</button>
-              )}
-            </div>
+          <div key={typeId} className="card fleet-group">
+            <button className="fleet-group-head" onClick={() => setFolded({ ...folded, [typeId]: !isFolded })}>
+              <PlaneSilhouette kind={t.silhouette} width={56} livery={planeLivery(s, list[0])} />
+              <strong>{t.name}</strong>
+              <span className="muted small-text">{t.freighter ? `${t.cargoT}t` : `${t.seats}席`}・{num(t.rangeKm)}km</span>
+              <span className="spacer" />
+              <span className="small-text">{list.length}機</span>
+              <span className="muted small-text">（稼働{flying}{idle ? `・待機${idle}` : ''}{shop ? `・整備${shop}` : ''}{order ? `・発注${order}` : ''}）</span>
+              <span className="muted">{isFolded ? '▸' : '▾'}</span>
+            </button>
+            {!isFolded && list.map((p) => (
+              <PlaneRow key={p.id} s={s} p={p} flying={fly.has(p.id)} open={open === p.id} onToggle={() => setOpen(open === p.id ? null : p.id)} apply={apply} />
+            ))}
           </div>
         );
       })}
     </div>
   );
+}
+
+function PlaneRow({ s, p, flying, open, onToggle, apply }: { s: GameState; p: Plane; flying: boolean; open: boolean; onToggle: () => void; apply: Apply }) {
+  const age = p.status === 'onOrder' ? null : planeAge(p, s.year);
+  return (
+    <div className={`plane-row ${open ? 'open' : ''}`}>
+      <button className="plane-row-head" onClick={onToggle}>
+        <span className="reg">{p.regNo}</span>
+        {statusLabel(s, p, flying)}
+        <span className="muted small-text">{AIRPORT_BY_CODE[p.base]?.name ?? p.base}</span>
+        {age !== null && <span className="muted small-text">機齢{age}年</span>}
+        {p.status !== 'onOrder' && p.lease?.kind !== 'wet' && <span className="small-text"><Meter v={p.condition} /></span>}
+        <span className="spacer" />
+        <span className="muted">{open ? '▾' : '▸'}</span>
+      </button>
+      {open && <PlaneDetail s={s} p={p} apply={apply} />}
+    </div>
+  );
+}
+
+function PlaneDetail({ s, p, apply }: { s: GameState; p: Plane; apply: Apply }) {
+    const t = planeType(p);
+    const terms = disposalTerms(s, p);
+    const isD = nextCheckIsD(p);
+    const wet = p.lease?.kind === 'wet';
+    return (
+      <div className="plane-detail">
+        <div className="card-head">
+          <PlaneSilhouette kind={t.silhouette} width={96} livery={planeLivery(s, p)} />
+          {p.specialLivery && p.specialLivery.untilYM >= nowYM(s) && <span className="tag">{p.specialLivery.name}</span>}
+        </div>
+        <div className="small-text muted">
+          {p.status === 'onOrder' ? `${p.builtYear}年製（予定）` : `機齢${planeAge(p, s.year)}年`} ／ {contractLabel(p)}
+        </div>
+        {p.status !== 'onOrder' && !wet && (
+          <div className="small-text">
+            状態 <Meter v={p.condition} /> {Math.round(p.condition)} ／ 総飛行 {num(p.totalHours)}h ／
+            次の{isD ? 'Dチェック' : 'Cチェック'}まで <span className={heavyCheckDue(p) ? 'neg' : ''}>{num(Math.max(0, HEAVY_CHECK_HOURS - p.hoursSinceHeavy))}h</span>
+          </div>
+        )}
+        <div className="row">
+          <BaseSelect s={s} p={p} apply={apply} />
+          {p.status !== 'onOrder' && <span className="small-text muted">1日{p.schedule.length}便{p.locked ? '（手動・固定）' : ''}</span>}
+          {p.status === 'active' && !wet && (
+            <button className="secondary small" onClick={() => {
+              const cost = heavyCheckCost(t, isD, s.year, s.month);
+              if (confirm(`今月から${isD ? 'Dチェック（2か月）' : 'Cチェック（1か月）'}に入れますか？ 費用 ${formatYen(cost)}`)) apply(resched(startHeavyCheck(s, p.id)));
+            }}>重整備に入れる</button>
+          )}
+          {p.status === 'active' && !p.lease && conversionsFor(p.typeId, s.year).map((to) => (
+            <button key={to.id} className="secondary small" title={planeAge(p, s.year) < 8 ? '機齢8年以上が対象です' : ''} disabled={planeAge(p, s.year) < 8} onClick={() => {
+              const cost = conversionCostYen(to, s.year, s.month);
+              if (confirm(`${to.name}に改修しますか？ 費用 ${formatYen(cost)}、${CONVERSION_MONTHS}か月運休します。改修後は貨物路線専用（${to.cargoT}t）になります。`)) apply(resched(startConversion(s, p.id, to.id)));
+            }}>貨物機に改修（{to.name.replace(/（.*）/, '')}）</button>
+          ))}
+          {p.status !== 'heavyCheck' && p.status !== 'shop' && (
+            <button className="danger small" onClick={() => {
+              const msg = p.status === 'onOrder'
+                ? '発注をキャンセルしますか？（手付金は戻りません）'
+                : terms.cash >= 0 ? `${terms.label}しますか？（${formatYen(terms.cash)}が入ります）` : `${terms.label}しますか？（費用 ${formatYen(-terms.cash)}）`;
+              if (confirm(msg)) apply(disposePlane(s, p.id));
+            }}>{terms.label}</button>
+          )}
+        </div>
+        {p.schedule.length > 0 && (
+          <div className="small-text muted">
+            担当便：{legViews(s, p).map((v) => `${AIRPORT_BY_CODE[v.from]?.name}${hhmm(v.dep)}→${AIRPORT_BY_CODE[v.to]?.name}`).join('、')}
+          </div>
+        )}
+      </div>
+    );
 }
 
 function Meter({ v }: { v: number }) {

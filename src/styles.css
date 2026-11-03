@@ -230,3 +230,14 @@ main.full > .tabs { flex: 0 0 auto; }
 .tt td { padding: 2px 8px 2px 0; white-space: nowrap; }
 .tt td.t { font-variant-numeric: tabular-nums; font-weight: 600; }
 @media (max-width: 900px) { .routes-screen { grid-template-columns: 1fr; grid-template-rows: 40% 60%; } .board { border-right: 0; border-bottom: 1px solid var(--line); } .tt-grid { grid-template-columns: 1fr; } }
+
+/* ---- fleet grouped by type ---- */
+.fleet-group { padding: 0; gap: 0; overflow: hidden; }
+.fleet-group-head { display: flex; align-items: center; gap: 8px; width: 100%; background: #1b2944; border: 0; border-radius: 0; padding: 8px 10px; color: var(--text); text-align: left; flex-wrap: wrap; }
+.fleet-group-head .spacer, .plane-row-head .spacer { flex: 1; }
+.plane-row { border-top: 1px solid var(--line); }
+.plane-row-head { display: flex; align-items: center; gap: 10px; width: 100%; background: none; border: 0; border-radius: 0; padding: 7px 10px; color: var(--text); text-align: left; flex-wrap: wrap; }
+.plane-row-head:hover { background: #1a2640; filter: none; }
+.plane-row.open .plane-row-head { background: #1a2640; }
+.plane-row-head .reg { font-family: ui-monospace, monospace; font-weight: 600; min-width: 5.5em; }
+.plane-detail { padding: 8px 12px 12px; display: flex; flex-direction: column; gap: 6px; background: #121b2e; }
