@@ -63,8 +63,23 @@ export function slotScore(s: GameState, code: string): SlotScore {
   return { total: parts.reduce((a, p) => a + p.value * p.weight, 0), parts };
 }
 
-/** Share of a released pool we get: 3% to 20% depending on the evaluation */
-export const slotShare = (score: number) => 0.03 + 0.17 * score;
+/** Rough daily movements at the whole airport before any capacity step */
+const BASE_CAPACITY: Record<string, number> = { HND: 120, ITM: 100, NRT: 120 };
+
+/** Total daily movements at the airport in the current year (all airlines) */
+export function airportCapacity(s: GameState, code: string): number {
+  const now = nowYM(s);
+  return (BASE_CAPACITY[code] ?? 100) + SLOT_EVENTS.filter((e) => e.code === code && e.year * 12 + e.month - 1 <= now).reduce((a, e) => a + e.pool, 0);
+}
+
+/** Our share of all slots at the airport */
+export const slotHolding = (s: GameState, code: string) => Math.min(1, (s.slots[code] ?? 0) / airportCapacity(s, code));
+
+/** Most of a released pool we can get: 20%, rising to 40% as we hold a bigger part of the airport (like the majors) */
+export const slotCap = (s: GameState, code: string) => 0.2 + Math.min(0.2, slotHolding(s, code) * 0.6);
+
+/** Share of a released pool we get: 3% up to the cap, by the evaluation */
+export const slotShare = (score: number, s?: GameState, code?: string) => 0.03 + ((s && code ? slotCap(s, code) : 0.2) - 0.03) * score;
 
 export function nextSlotEvent(s: GameState, code: string): SlotEvent | null {
   const now = nowYM(s);
@@ -80,7 +95,7 @@ export function allocateSlots(s0: GameState): { s: GameState; news: string[] } {
   for (const e of SLOT_EVENTS) {
     if (e.year !== s.year || e.month !== s.month || !airports.includes(e.code)) continue;
     const score = slotScore(s, e.code).total;
-    let gain = Math.round(e.pool * slotShare(score) / 2) * 2;
+    let gain = Math.round(e.pool * slotShare(score, s, e.code) / 2) * 2;
     const newcomer = e.newcomer && (s.slots[e.code] ?? 0) < 40 ? e.newcomer : 0;
     gain += newcomer;
     add(e.code, gain);
@@ -102,7 +117,7 @@ export function allocateSlots(s0: GameState): { s: GameState; news: string[] } {
       if (have === 0) continue;
       const unused = Math.max(0, have - Math.ceil((use[code] ?? 0) * 1.1));
       const slice = have > 60 ? Math.round(have * 0.05) : 0;
-      const back = Math.round((40 * slotShare(slotScore(s, code).total)) / 2) * 2;
+      const back = Math.round((40 * slotShare(slotScore(s, code).total, s, code)) / 2) * 2;
       add(code, back - unused - slice);
       news.push(`${AIRPORT_BY_CODE[code].name}：5年ごとの枠の回収・再配分がありました（回収${unused + slice}回、再配分${back}回）。`);
     }

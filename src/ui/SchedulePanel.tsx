@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { BaseSelect } from './BaseSelect';
-import { nextSlotEvent, slotScore, slotShare } from '../engine/slots';
+import { nextSlotEvent, slotCap, slotHolding, slotScore, slotShare } from '../engine/slots';
 import { AIRPORT_BY_CODE } from '../data/airports';
 import { flyablePlanes, formatYen, openAirports, planeType, setOps, toggleCrewBase, type Result } from '../engine/sim';
 import {
@@ -81,13 +81,13 @@ export function SchedulePanel({ s, apply }: { s: GameState; apply: Apply }) {
                   <div><strong>{aptName(c)}</strong> 使用 {use[c] ?? 0} / {s.slots[c] ?? 0} 回 <span className="muted">（いちばん多い曜日）</span></div>
                   <div className="muted">
                     国の評価 {Math.round(sc.total * 100)}点（{sc.parts.map((p) => `${p.label}${Math.round(p.value * 100)}`).join('・')}）
-                    → 次の増枠で全体の{Math.round(slotShare(sc.total) * 100)}%を配分
+                    → 次の増枠で全体の{Math.round(slotShare(sc.total, s, c) * 100)}%を配分（上限{Math.round(slotCap(s, c) * 100)}%・空港全体の枠の{Math.round(slotHolding(s, c) * 100)}%を保有）
                   </div>
                   <div className="muted">{next ? `次の増枠：${next.year}年${next.month}月 ${next.label}（全体で1日${next.pool}回）` : '予定されている増枠はありません'}</div>
                 </div>
               );
             })}
-            <p className="muted">枠は1日あたりの上限で、曜日ごとに数えます（週3便と週4便の路線で1往復分を分け合えます）。枠は新しい滑走路ができたときにまとめて増え、国の評価で各社に配られます。毎年4月にも、評価40点以上で1往復、60点以上で2往復、80点以上で3往復分増えます。2005年からは5年ごとに使っていない枠が回収されます。</p>
+            <p className="muted">枠は1日あたりの上限で、曜日ごとに数えます（週3便と週4便の路線で1往復分を分け合えます）。枠は新しい滑走路ができたときにまとめて増え、国の評価で各社に配られます。当社の取り分の上限は20%から始まり、空港全体の枠を多く持つほど最大40%まで上がります。毎年4月にも、評価40点以上で1往復、60点以上で2往復、80点以上で3往復分増えます。2005年からは5年ごとに使っていない枠が回収されます。</p>
             <details className="muted">
               <summary>評価の内訳について</summary>
               <ul>
