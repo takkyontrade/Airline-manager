@@ -15,14 +15,14 @@ import {
 import {
   heavyCheckDue, heavyCheckOverdue, nowYM, planeValue, planeAge, planeType, refreshUsedMarket, startHeavyCheck, ymLabel,
 } from './fleet';
-import { serviceLoans } from './finance';
+import { debt, fleetValue, serviceLoans } from './finance';
 import { allocateSlots } from './slots';
 import { crewedPlanes, graduateTrainees, traineeCount } from './staff';
 import {
   autoSchedule, baseCostMonthly, dayCount, INITIAL_SLOTS, legMinutes, opsCostMonthly, routeWeekly,
   scheduleStale, simulateDelays, validateRotation,
 } from './schedule';
-import type { CabinLayout, GameState, MaintLevel, MonthCosts, MonthReport, Plane, Route, RouteResult, SchedulePolicy } from './types';
+import type { CabinLayout, GameState, MaintLevel, MonthCosts, MonthReport, Plane, Route, RouteResult, SchedulePolicy, StatPoint } from './types';
 import { fail, formatYen, nextId, ok, rng, withNews, type Result } from './util';
 import { allianceMembers, isTrunk, competitors, pairKey, partners, rivalCargoWeeklyT, updatePressure, type Competitor } from './rivals';
 import { fareBand, GROUNDINGS, HISTORY_NEWS, RAIL_OPENINGS, DEMAND_EVENTS, routeLicensing } from '../data/history';
@@ -618,6 +618,14 @@ export function advanceMonth(s0: GameState): GameState {
   let month = s.month + 1;
   if (month > 12) { month = 1; year++; }
   next = { ...next, year, month, negativeCashMonths, gameOver, history: [...s.history, report].slice(-120) };
+  const stat: StatPoint = {
+    year: s.year, month: s.month, cash: next.cash, netWorth: next.cash + fleetValue(next) - debt(next),
+    revenue: report.revenue, profit: report.profit, pax: report.pax,
+    cargoT: report.routes.reduce((a, r) => a + (r.cargoT ?? 0), 0),
+    fleet: next.planes.filter((p) => p.status !== 'onOrder').length, routes: next.routes.length,
+    reputation: next.reputation, onTime: report.onTime,
+  };
+  next = { ...next, stats: [...(s.stats ?? []), stat] };
 
   if (month === 1) {
     for (const a of AIRPORTS) if (a.openYear === year) next = withNews(next, `${a.name}空港（${a.city}）が開港し、定期便を飛ばせるようになりました。`, 'history');

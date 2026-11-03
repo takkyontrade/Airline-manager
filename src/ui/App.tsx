@@ -8,15 +8,16 @@ import type { GameState } from '../engine/types';
 import { MapView } from './MapView';
 import { FinancePanel, FleetPanel, MarketPanel, NewsPanel, RivalsPanel, StaffPanel } from './panels';
 import { RoutesScreen } from './RoutesScreen';
+import { StatsScreen } from './StatsScreen';
 import { SchedulePanel } from './SchedulePanel';
 import { BrandPanel } from './BrandPanel';
 import { OpsRoom } from './OpsRoom';
 import { CloudPanel } from './CloudPanel';
 import { AirportCard } from './AirportCard';
 
-type Tab = 'routes' | 'schedule' | 'fleet' | 'market' | 'staff' | 'finance' | 'rivals' | 'brand' | 'news';
+type Tab = 'routes' | 'schedule' | 'fleet' | 'market' | 'staff' | 'finance' | 'stats' | 'rivals' | 'brand' | 'news';
 const TABS: [Tab, string][] = [
-  ['routes', '路線'], ['schedule', 'ダイヤ'], ['fleet', '機材'], ['market', '機材市場'], ['staff', '人員・整備'], ['finance', '財務'], ['rivals', 'ライバル・規制'], ['brand', 'ブランド'], ['news', 'ニュース'],
+  ['routes', '路線'], ['schedule', 'ダイヤ'], ['fleet', '機材'], ['market', '機材市場'], ['staff', '人員・整備'], ['finance', '財務'], ['stats', '統計'], ['rivals', 'ライバル・規制'], ['brand', 'ブランド'], ['news', 'ニュース'],
 ];
 
 export function App() {
@@ -129,8 +130,8 @@ function Game({ state, setState }: { state: GameState; setState: (s: GameState |
         <div className="muted">評判 {Math.round(state.reputation)}</div>
         <div className="spacer" />
         <div className="seg small-seg">
-          <button className={view === 'map' && tab !== 'routes' ? 'on' : ''} onClick={() => { setView('map'); if (tab === 'routes') setTab('schedule'); }}>地図</button>
-          <button className={view === 'ops' && tab !== 'routes' ? 'on' : ''} onClick={() => { setView('ops'); if (tab === 'routes') setTab('schedule'); }}>オペレーションルーム</button>
+          <button className={view === 'map' && tab !== 'routes' && tab !== 'stats' ? 'on' : ''} onClick={() => { setView('map'); if (tab === 'routes' || tab === 'stats') setTab('schedule'); }}>地図</button>
+          <button className={view === 'ops' && tab !== 'routes' && tab !== 'stats' ? 'on' : ''} onClick={() => { setView('ops'); if (tab === 'routes' || tab === 'stats') setTab('schedule'); }}>オペレーションルーム</button>
         </div>
         <button className="secondary small menu-toggle" onClick={() => setMenuOpen(!menuOpen)}>≡ メニュー</button>
         <div className={`file-buttons ${menuOpen ? 'open' : ''}`}>
@@ -171,14 +172,14 @@ function Game({ state, setState }: { state: GameState; setState: (s: GameState |
         <button className="primary" disabled={state.gameOver} onClick={() => setState(advanceMonth(state))}>1か月進める ▶</button>
       </header>
       {state.gameOver && <div className="banner bad">倒産しました。「新しいゲーム」から再挑戦できます。</div>}
-      {tab === 'routes' ? (
+      {tab === 'routes' || tab === 'stats' ? (
         <main className="full">
           <nav className="tabs">
             {TABS.map(([k, label]) => (
               <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{label}</button>
             ))}
           </nav>
-          <RoutesScreen s={state} apply={apply} onHover={setHoverRoute} />
+          {tab === 'routes' ? <RoutesScreen s={state} apply={apply} onHover={setHoverRoute} /> : <StatsScreen s={state} />}
         </main>
       ) : (
       <main>

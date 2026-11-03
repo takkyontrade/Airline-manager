@@ -222,6 +222,8 @@ export interface GameState {
   difficulty?: 'easy' | 'normal' | 'hard';
   /** multi-stop rotations (e.g. triangle routes) scheduled automatically */
   circuits?: Circuit[];
+  /** compact monthly record kept for the whole game (for the statistics tab) */
+  stats?: StatPoint[];
   /** two-letter code used in flight numbers */
   flightCode?: string;
   /** year the company was founded (for retro liveries) */
@@ -262,4 +264,21 @@ export interface Circuit {
   /** times per week the whole circuit is flown */
   targetWeekly: number;
   typeId: string | null;
+}
+
+/** One month in the long-term statistics */
+export interface StatPoint {
+  year: number;
+  month: number;
+  cash: number;
+  /** cash + fleet value - debt */
+  netWorth: number;
+  revenue: number;
+  profit: number;
+  pax: number;
+  cargoT: number;
+  fleet: number;
+  routes: number;
+  reputation: number;
+  onTime: number;
 }
