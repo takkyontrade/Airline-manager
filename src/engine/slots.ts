@@ -30,7 +30,9 @@ export const SLOT_EVENTS: SlotEvent[] = [
   { code: 'HND', year: 2000, month: 7, pool: 114, newcomer: 12, label: '新B滑走路の供用（新規参入枠あり）' },
   { code: 'HND', year: 2010, month: 10, pool: 74, newcomer: 8, label: 'D滑走路（4本目）の供用' },
   { code: 'HND', year: 2013, month: 3, pool: 50, newcomer: 6, label: '管制の見直しによる増枠' },
+  { code: 'ITM', year: 1970, month: 4, pool: 40, label: '大阪万博に向けたB滑走路（3,000m）の供用' },
   { code: 'ITM', year: 1977, month: 4, pool: 20, label: '騒音対策の進展による増便' },
+  { code: 'ITM', year: 1994, month: 9, pool: 30, label: '関西空港の開港で国際線が移り、空いた枠の再配分' },
   { code: 'NRT', year: 2002, month: 4, pool: 60, newcomer: 6, label: '暫定平行滑走路（B滑走路）の供用' },
   { code: 'NRT', year: 2015, month: 4, pool: 60, newcomer: 6, label: '年間30万回への容量拡大' },
 ];
@@ -88,7 +90,7 @@ export function allocateSlots(s0: GameState): { s: GameState; news: string[] } {
   if (s.month === 4) {
     for (const code of airports) {
       const score = slotScore(s, code).total;
-      const n = score >= 0.85 ? 4 : score >= 0.6 ? 2 : 0;
+      const n = score >= 0.8 ? 6 : score >= 0.6 ? 4 : score >= 0.4 ? 2 : 0;
       if (n) { add(code, n); news.push(`${AIRPORT_BY_CODE[code].name}：他社が使わなかった枠の再配分で、1日${n}回の枠を得ました。`); }
     }
   }
