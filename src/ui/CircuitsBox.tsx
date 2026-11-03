@@ -23,7 +23,7 @@ export function CircuitsBox({ s, apply }: { s: GameState; apply: (r: Result) => 
         <strong>周回ルート（三角運航など）</strong>
         <button className="small secondary" onClick={() => setOpen(!open)}>{open ? '閉じる' : '＋ 新しく作る'}</button>
       </div>
-      <p className="muted small-text">1機が A→B→C→A のように回って拠点に戻る運航を、自動ダイヤで組みます。同じ空港を2回通ることもできます（例：伊丹→仙台→名古屋→仙台→伊丹）。足りない区間の路線は自動で開設されます。貨物の周回は貨物機で飛び、海外の空港も入れられます（例：成田→仁川→関西→成田。海外どうしの区間は飛べません）。1日で回りきれる距離にしてください。</p>
+      <p className="muted small-text">1機が A→B→C→A のように回って拠点に戻る運航を、自動ダイヤで組みます。同じ空港を2回通ることもできます（例：伊丹→仙台→名古屋→仙台→伊丹）。足りない区間の路線は自動で開設されます。貨物の周回は貨物機で飛びます。海外の空港も入れられ、海外どうしの区間は日本から続けて飛ぶ便（以遠権）として運航します（例：成田→香港→バンコク→成田）。同じ国の中の区間（ロサンゼルス→ニューヨークなど）は飛べません。1機が1日で回って戻るので、1日で回りきれる距離にしてください。</p>
       {open && (
         <div className="circuit-form">
           <div className="seg">
@@ -36,7 +36,7 @@ export function CircuitsBox({ s, apply }: { s: GameState; apply: (r: Result) => 
               <select value={v} onChange={(e) => setStops(stops.map((x, k) => (k === i ? e.target.value : x)))}>
                 <option value="">—</option>
                 {jp.map((a) => <option key={a.code} value={a.code}>{a.name}</option>)}
-                {kind === 'cargo' && i > 0 && <optgroup label="海外">{abroad.map((a) => <option key={a.code} value={a.code}>{a.name}（{a.city}）</option>)}</optgroup>}
+                {i > 0 && <optgroup label="海外">{abroad.map((a) => <option key={a.code} value={a.code}>{a.name}（{a.city}）</option>)}</optgroup>}
               </select>
             </label>
           ))}

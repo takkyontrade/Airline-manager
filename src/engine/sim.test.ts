@@ -669,8 +669,23 @@ describe('cargo circuits', () => {
     expect(freighter.schedule.length).toBe(3);
     expect(s.planes.find((p) => p.typeId === 'b767-300')!.schedule).toHaveLength(0);
   });
-  test('passenger circuits still stay domestic', () => {
-    const s = newGame('t', 'NRT', 1, { startYear: 2000 });
-    expect(addCircuit(s, ['NRT', 'ICN', 'PVG']).ok).toBe(false);
+  test('beyond rights: a foreign-foreign leg inside a circuit, but no cabotage or standalone route', () => {
+    let s: GameState = { ...newGame('t', 'NRT', 1, { startYear: 2000 }), reputation: 80, cash: 1e12, slots: { HND: 99, ITM: 99, NRT: 99 } };
+    let id: string;
+    [s, id] = withListing(s, 'b767-300', 1);
+    s = must(acquireUsed(s, id, 'buy'));
+    [s, id] = withListing(s, 'b767-300', 1);
+    s = must(acquireUsed(s, id, 'buy'));
+    s = { ...s, crewBases: [...s.crewBases, 'NRT'], pilots: { ...s.pilots, 'b767-300': { rated: 20, training: [] } }, planes: s.planes.map((p) => ({ ...p, base: 'NRT' })) };
+    expect(openRoute(s, 'HKG', 'BKK').ok).toBe(false);
+    expect(addCircuit(s, ['NRT', 'LAX', 'JFK']).ok).toBe(false);
+    expect(marketDemand('HKG', 'BKK', 2000, 6)).toBeGreaterThan(0);
+    s = must(addCircuit(s, ['NRT', 'HKG', 'BKK']));
+    const beyond = s.routes.find((r) => r.from === 'HKG' && r.to === 'BKK')!;
+    expect(beyond).toBeTruthy();
+    expect(circuitScheduled(s, s.circuits![0])).toBe(7);
+    const s2 = advanceMonth(s);
+    const res = s2.history[s2.history.length - 1].routes.find((x) => x.routeId === beyond.id)!;
+    expect(res.pax).toBeGreaterThan(0);
   });
 });

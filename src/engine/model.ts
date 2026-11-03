@@ -167,6 +167,7 @@ export function eventFactor(a: string, b: string, year: number, month: number): 
 
 /** Monthly one-direction market demand at reference fare */
 export function marketDemand(from: string, to: string, year: number, month: number): number {
+  if (isForeign(from) && isForeign(to)) return beyondDemand(from, to, year, month);
   if (isForeign(from) || isForeign(to)) return intlDemand(from, to, year, month);
   const a = AIRPORT_BY_CODE[from];
   const b = AIRPORT_BY_CODE[to];
@@ -235,6 +236,31 @@ export function intlDemand(from: string, to: string, year: number, month: number
   const gate = ignoreGateway ? 1 : intlGatewayShare(jp, year);
   return groupTotal * 1000 * jpScale * idx * SEASONALITY[month - 1] * gate * foreignShare(fx, year) * eventFactor(jp, fx, year, month);
 }
+
+/** An airport's share of its city's international weight this year */
+function foreignWeight(code: string, year: number): number {
+  const a = AIRPORT_BY_CODE[code];
+  const groupTotal = a.cityGroup ? AIRPORTS.filter((x) => x.cityGroup === a.cityGroup).reduce((n, x) => n + (x.intlWeight ?? 0), 0) : a.intlWeight ?? 0;
+  return groupTotal * foreignShare(code, year);
+}
+
+/**
+ * Monthly one-direction demand between two foreign airports, which a Japanese
+ * airline can only carry with beyond (fifth freedom) rights. Flights inside one
+ * country are cabotage and not allowed.
+ */
+export function beyondDemand(from: string, to: string, year: number, month: number): number {
+  const a = AIRPORT_BY_CODE[from], b = AIRPORT_BY_CODE[to];
+  if (!isAirportOpen(a, year) || !isAirportOpen(b, year)) return 0;
+  if (a.country === b.country) return 0;
+  const t = yearFrac(year, month);
+  const idx = ASIA.has(a.region) && ASIA.has(b.region) ? econ.intlAsia(t) : econ.intlLong(t);
+  const km = distanceKm(a, b);
+  const w = Math.sqrt(foreignWeight(from, year) * foreignWeight(to, year));
+  return 600 * w * idx * SEASONALITY[month - 1] / (1 + km / 3000) * eventFactor(from, to, year, month);
+}
+
+export const isBeyondRoute = (from: string, to: string) => isForeign(from) && isForeign(to);
 
 /** Reference one-way international fare in yen (set in dollars, so it moves with the exchange rate) */
 export function intlReferenceFare(km: number, year: number, month: number): number {

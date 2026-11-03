@@ -153,7 +153,7 @@ export function routeApproval(s: GameState, from: string, to: string): { ok: boo
 export const planesOnRoute = (s: GameState, routeId: string) => s.planes.filter((p) => p.schedule.some((l) => l.routeId === routeId));
 
 /** `skipLicense` is for tests and sandbox tools only */
-export function openRoute(s: GameState, from: string, to: string, opts: { skipLicense?: boolean; kind?: 'pax' | 'cargo' } = {}): Result {
+export function openRoute(s: GameState, from: string, to: string, opts: { skipLicense?: boolean; kind?: 'pax' | 'cargo'; beyond?: boolean } = {}): Result {
   const kind = opts.kind ?? 'pax';
   if (from === to) return fail('同じ空港同士は結べません');
   const a = AIRPORT_BY_CODE[from];
@@ -162,7 +162,10 @@ export function openRoute(s: GameState, from: string, to: string, opts: { skipLi
   if (!isAirportOpen(a, s.year) || !isAirportOpen(b, s.year)) return fail('まだ開港していない空港があります');
   if (s.routes.some((r) => (r.kind ?? 'pax') === kind && ((r.from === from && r.to === to) || (r.from === to && r.to === from))))
     return fail(kind === 'cargo' ? 'すでに開設済みの貨物路線です' : 'すでに開設済みの路線です');
-  if (a.foreign && b.foreign) return fail('外国の空港同士は結べません（日本発着の路線のみ）');
+  if (a.foreign && b.foreign) {
+    if (a.country === b.country) return fail(`${a.country}の国内区間は飛べません（外国の会社には国内輸送が認められていません）`);
+    if (!opts.beyond) return fail('海外どうしの区間は、日本から続けて飛ぶ便（以遠権）として「周回ルート」で開設してください');
+  }
   // domestic cargo routes were not restricted like passenger trunk routes
   const approval = kind === 'cargo' && !isIntlRoute(from, to) ? { ok: true, reason: '' } : routeApproval(s, from, to);
   if (!approval.ok && !opts.skipLicense) return fail(approval.reason);
@@ -935,13 +938,12 @@ export function addCircuit(s0: GameState, stops: string[], targetWeekly = 7, typ
   const clean = stops.filter(Boolean);
   if (new Set(clean).size < 3) return fail('周回ルートには3つ以上の異なる空港が必要です');
   if (clean.some((c, i) => c === clean[(i + 1) % clean.length])) return fail('同じ空港が続かないように選んでください（最後の空港と出発地も別にしてください）');
-  if (kind === 'pax' && clean.some((c) => isForeign(c))) return fail('旅客の周回ルートは今のところ国内線だけです');
   if (isForeign(clean[0])) return fail('出発・帰着は日本の空港にしてください');
   let s = s0;
   for (let i = 0; i < clean.length; i++) {
     const a = clean[i], b = clean[(i + 1) % clean.length];
     if (s.routes.some((r) => (r.kind ?? 'pax') === kind && ((r.from === a && r.to === b) || (r.from === b && r.to === a)))) continue;
-    const r = openRoute(s, a, b, { kind });
+    const r = openRoute(s, a, b, { kind, beyond: true });
     if (!r.ok) return fail(`${AIRPORT_BY_CODE[a].name}〜${AIRPORT_BY_CODE[b].name}：${r.error}`);
     s = { ...r.state, routes: r.state.routes.map((x, k) => (k === r.state.routes.length - 1 ? { ...x, targetWeekly: 0 } : x)) };
   }

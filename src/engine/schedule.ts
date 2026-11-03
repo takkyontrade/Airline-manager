@@ -283,7 +283,9 @@ function greedySchedule(s: GameState, opt: GreedyOpts): { state: GameState; scor
   const lockedPlanes = s.planes.filter((p) => p.locked && schedulable(s, p));
   const needs: Need[] = s.routes.map((route) => {
     const flown = lockedPlanes.reduce((n, p) => n + p.schedule.filter((l) => l.routeId === route.id && l.dir === 0).reduce((m, l) => m + legsPerWeek(p, l), 0), 0);
-    return { route, remainingWeekly: Math.max(0, route.targetWeekly - flown) };
+    // beyond (foreign-foreign) legs are only flown as part of a circuit from Japan
+    const beyond = isForeign(route.from) && isForeign(route.to);
+    return { route, remainingWeekly: beyond ? 0 : Math.max(0, route.targetWeekly - flown) };
   });
   const slotLeft: Record<string, number[]> = {};
   const usedByLocked = slotUsageByDay(s, lockedPlanes);

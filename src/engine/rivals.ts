@@ -56,6 +56,15 @@ function shares(a: string, b: string, year: number): [Rival, number][] {
     const r = RIVALS.find((x) => x.id === id)!;
     if (active(r, year)) out.push([r, w]);
   };
+  if (isForeign(a) && isForeign(b)) {
+    // the two countries' own airlines carry most of the traffic between them
+    for (const c of new Set([AIRPORT_BY_CODE[a].country, AIRPORT_BY_CODE[b].country])) {
+      const home = RIVALS.find((x) => x.role === 'foreign' && x.country === c);
+      if (home) add(home.id, 1);
+    }
+    const total = out.reduce((n, [, w]) => n + w, 0);
+    return out.map(([r, w]) => [r, w / total]);
+  }
   if (isForeign(a) || isForeign(b)) {
     const country = AIRPORT_BY_CODE[isForeign(a) ? a : b].country;
     add('JIA', year < 1986 ? 0.6 : 0.5);
@@ -99,7 +108,6 @@ export function rivalSlotFactor(s: GameState, code: string, year = s.year): numb
 /** All rival airlines flying a pair this month */
 export function competitors(s: GameState, a: string, b: string, year = s.year, month = s.month): Competitor[] {
   if (!isAirportOpen(AIRPORT_BY_CODE[a], year) || !isAirportOpen(AIRPORT_BY_CODE[b], year)) return [];
-  if (isForeign(a) && isForeign(b)) return [];
   const intl = isForeign(a) || isForeign(b);
   const km = routeDistance(a, b);
   // airlines plan capacity on an average month of the year
@@ -155,6 +163,7 @@ export function rivalOverview(s: GameState): { rival: Rival; routes: number; wee
   const stats = new Map<string, { routes: number; weekly: number; list: [string, number][] }>();
   for (let i = 0; i < open.length; i++) {
     for (let j = i + 1; j < open.length; j++) {
+      if (isForeign(open[i].code) && isForeign(open[j].code)) continue;
       for (const c of competitors(s, open[i].code, open[j].code)) {
         const st = stats.get(c.rival.id) ?? { routes: 0, weekly: 0, list: [] };
         st.routes++;

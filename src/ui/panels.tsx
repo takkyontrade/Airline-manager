@@ -62,6 +62,9 @@ export function RouteDetail({ s, r, apply }: { s: GameState; r: Route; apply: Ap
           <span className="muted">{num(km)}km</span>
           <button className="danger small" onClick={() => confirm('この路線を廃止しますか？') && apply(closeRoute(s, r.id))}>廃止</button>
         </div>
+        {AIRPORT_BY_CODE[r.from]?.foreign && AIRPORT_BY_CODE[r.to]?.foreign && (
+          <p className="muted small-text">以遠権の区間です。日本から続けて飛ぶ「周回ルート」の一部としてだけ運航され、下の週の便数は使われません。</p>
+        )}
         <div className="grid2">
           {cargoRoute ? (
             <label>
