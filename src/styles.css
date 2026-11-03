@@ -271,3 +271,14 @@ main.full > .tabs { flex: 0 0 auto; }
 .bulk-table th { text-align: left; font-weight: normal; opacity: 0.7; }
 .board-filter { padding: 6px 12px; border-bottom: 1px solid #1d2230; }
 .board-filter select { width: 100%; }
+.map.live .route.active { opacity: .35; }
+.map .live-plane { cursor: pointer; }
+.map .live-plane .hit { fill: transparent; }
+.map .live-plane path { fill: #ffffff; stroke: #0b1a33; stroke-width: 1; }
+.map .live-plane.cargo path { fill: #ffcf7a; }
+.map .live-plane.on path { fill: #ffd36b; }
+.map .live-plane text { fill: #ffe9a8; paint-order: stroke; stroke: #0b1a33; stroke-width: 3px; font-family: ui-monospace, monospace; }
+.live-bar { position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; background: rgba(10, 16, 30, .88); border: 1px solid #24304a; border-radius: 10px; font-size: 13px; }
+.live-bar input[type=range] { flex: 1; min-width: 140px; }
+.live-clock { font-family: ui-monospace, monospace; font-size: 18px; color: var(--accent2); min-width: 76px; }
+.live-info { flex-basis: 100%; }
