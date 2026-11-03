@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { addCircuit, advanceMonth, closeRoute, removeCircuit, setCircuit, joinAlliance, newGame, openRoute, routeMarket, setOps, setRoute, START_CASH } from './sim';
 import { allocateSlots } from './slots';
 import { circuitScheduled, setPlaneBase, autoSchedule, scheduledWeekly, setPlaneSchedule, slotUsage, validateRotation, legViews } from './schedule';
-import { acquireUsed, disposePlane, orderNew, leadMonths, startConversion, startHeavyCheck } from './fleet';
+import { acquireUsed, disposePlane, orderNew, orderNewBulk, leadMonths, startConversion, startHeavyCheck } from './fleet';
 import { creditLimit, takeLoan, repayLoan } from './finance';
 import { crewedPlanes, hirePilots, trainPilots } from './staff';
 import { accidentRatePerFlight, canFly, HEAVY_CHECK_HOURS, intlReferenceFare, riskFactor, marketDemand, referenceFare, routeDistance } from './model';
@@ -539,5 +539,22 @@ describe('slots per weekday', () => {
     expect(scheduledWeekly(s, s.routes[0].id)).toBe(3);
     expect(scheduledWeekly(s, s.routes[1].id)).toBe(4);
     expect(slotUsage(s).HND).toBe(2);
+  });
+});
+
+describe('bulk orders', () => {
+  test('ordering five at once is cheaper and deliveries are spread', () => {
+    const s = { ...newGame('t', 'HND', 1, { startYear: 2000 }), cash: 1e12 };
+    const one = must(orderNew(s, 'b737-800', 'buy'));
+    const five = must(orderNewBulk(s, 'b737-800', 'buy', 5));
+    const ordered = five.planes.filter((p) => p.status === 'onOrder');
+    expect(ordered).toHaveLength(5);
+    expect(ordered[0].purchaseYen).toBeLessThan(one.planes[one.planes.length - 1].purchaseYen);
+    expect(Math.max(...ordered.map((p) => p.readyYM)) - Math.min(...ordered.map((p) => p.readyYM))).toBe(2);
+  });
+  test('stops when the deposit runs out', () => {
+    const s = { ...newGame('t', 'HND', 1, { startYear: 2000 }), cash: 2e9 };
+    const r = must(orderNewBulk(s, 'b737-800', 'buy', 20));
+    expect(r.planes.filter((p) => p.status === 'onOrder').length).toBeLessThan(20);
   });
 });

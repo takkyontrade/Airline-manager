@@ -16,7 +16,7 @@ const resched = (r: Result): Result => (r.ok ? { ok: true, state: autoSchedule(r
 import {
   acquireUsed, disposalTerms, disposePlane, financeLeaseMonthly, heavyCheckDue, heavyCheckOverdue,
   leadMonths, newTypesOnSale, nextCheckIsD, nowYM, OPERATING_TERMS, operatingLeaseRate,
-  ORDER_DEPOSIT, orderNew, startConversion, startHeavyCheck, wetLeaseMonthly, ymLabel, type OrderMode,
+  bulkDiscount, MAX_BULK, ORDER_DEPOSIT, orderNewBulk, startConversion, startHeavyCheck, wetLeaseMonthly, ymLabel, type OrderMode,
 } from '../engine/fleet';
 import { creditLimit, currentLoanRate, debt, fleetValue, LOAN_TERMS, monthlyPayment, repayLoan, takeLoan } from '../engine/finance';
 import { hirePilots, pilotsRequired, pool, relevantTypes, traineeCount, trainPilots } from '../engine/staff';
@@ -315,11 +315,12 @@ function Specs({ typeId, year }: { typeId: string; year?: number }) {
 
 function NewOrders({ s, apply }: { s: GameState; apply: Apply }) {
   const [years, setYears] = useState<number>(8);
+  const [qty, setQty] = useState<Record<string, number>>({});
   const types = newTypesOnSale(s.year);
   return (
     <div className="list">
       <div className="small-text muted">
-        購入は手付金{pct(ORDER_DEPOSIT)}・残りは納入時。リースは保証金2か月分で、納入月から支払い開始。
+        購入は手付金{pct(ORDER_DEPOSIT)}・残りは納入時。まとめて発注すると3機以上で3%、5機以上で5%、10機以上で8%安くなります。リースは保証金2か月分で、納入月から支払い開始。
         オペレーティングリース期間：
         <select value={years} onChange={(e) => setYears(Number(e.target.value))}>
           {OPERATING_TERMS.map((y) => <option key={y} value={y}>{y}年</option>)}
@@ -328,7 +329,14 @@ function NewOrders({ s, apply }: { s: GameState; apply: Apply }) {
       {types.map((t) => {
         const price = newPriceYen(t, s.year, s.month);
         const lead = leadMonths(t, s.year);
-        const order = (mode: OrderMode) => apply(orderNew(s, t.id, mode, years));
+        const n = qty[t.id] ?? 1;
+        const disc = bulkDiscount(n);
+        const unit = price * (1 - disc);
+        const order = (mode: OrderMode) => {
+          if (n > 1 && !confirm(`${t.name}を${n}機発注しますか？`)) return;
+          apply(orderNewBulk(s, t.id, mode, n, years));
+        };
+        const times = n > 1 ? `×${n}` : '';
         return (
           <div key={t.id} className="card market">
             <PlaneSilhouette kind={t.silhouette} width={110} />
@@ -340,11 +348,15 @@ function NewOrders({ s, apply }: { s: GameState; apply: Apply }) {
               </div>
               <Specs year={s.year} typeId={t.id} />
               <div className="row">
-                <button onClick={() => order('buy')}>購入 {formatYen(price)}</button>
-                <button className="secondary" onClick={() => order('operating')}>リース 月{formatYen(price * operatingLeaseRate(years, false))}</button>
+                <label className="inline small-text">機数
+                  <NumInput min={1} max={MAX_BULK} value={n} style={{ width: 48 }} onCommit={(v) => setQty({ ...qty, [t.id]: v })} />
+                </label>
+                <button onClick={() => order('buy')}>購入 {formatYen(unit)}{times}</button>
+                <button className="secondary" onClick={() => order('operating')}>リース 月{formatYen(unit * operatingLeaseRate(years, false))}{times}</button>
                 <button className="secondary" title="10年払い終えると自社のものになります" onClick={() => order('finance')}>
-                  ファイナンスリース 月{formatYen(financeLeaseMonthly(price, s.year, s.month))}
+                  ファイナンスリース 月{formatYen(financeLeaseMonthly(unit, s.year, s.month))}{times}
                 </button>
+                {n > 1 && <span className="small-text muted">{disc > 0 ? `まとめ買い${Math.round(disc * 100)}%引き・` : ''}納入は月2機ずつ</span>}
               </div>
             </div>
           </div>

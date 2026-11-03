@@ -56,12 +56,36 @@ function basePlane(s: GameState, id: string, t: AircraftType): Plane {
 
 export type OrderMode = 'buy' | 'operating' | 'finance';
 
-export function orderNew(s: GameState, typeId: string, mode: OrderMode, leaseYears = 8): Result {
+/** Bulk discount on new aircraft: 3% from 3, 5% from 5, 8% from 10 */
+export const bulkDiscount = (n: number) => (n >= 10 ? 0.08 : n >= 5 ? 0.05 : n >= 3 ? 0.03 : 0);
+export const MAX_BULK = 20;
+
+/** Order several of a type at once: a bulk discount, deliveries two a month after the usual lead time */
+export function orderNewBulk(s0: GameState, typeId: string, mode: OrderMode, count: number, leaseYears = 8): Result {
+  const n = Math.max(1, Math.min(MAX_BULK, Math.round(count)));
+  if (n === 1) return orderNew(s0, typeId, mode, leaseYears);
+  const t = AIRCRAFT_BY_ID[typeId];
+  let s = s0;
+  for (let i = 0; i < n; i++) {
+    const r = orderNew(s, typeId, mode, leaseYears, { discount: bulkDiscount(n), extraMonths: Math.floor(i / 2), quiet: true });
+    if (!r.ok) {
+      if (i === 0) return r;
+      s = withNews(s, `${t.name}を${i}機まとめて発注しました（${n}機の予定でしたが、${r.error}）。`);
+      return ok(s);
+    }
+    s = r.state;
+  }
+  const first = nowYM(s0) + leadMonths(t, s0.year);
+  const how = mode === 'buy' ? '購入' : mode === 'operating' ? `リース（${leaseYears}年）` : 'ファイナンスリース';
+  return ok(withNews(s, `${t.name}を${n}機まとめて${how}で発注しました（${Math.round(bulkDiscount(n) * 100)}%割引）。納入は${ymLabel(first)}から${ymLabel(first + Math.floor((n - 1) / 2))}にかけての予定です。`));
+}
+
+export function orderNew(s: GameState, typeId: string, mode: OrderMode, leaseYears = 8, opts: { discount?: number; extraMonths?: number; quiet?: boolean } = {}): Result {
   if (s.gameOver) return fail('ゲームオーバーです');
   const t = AIRCRAFT_BY_ID[typeId];
   if (!t || s.year < t.introYear || s.year > t.endYear) return fail('この機種は今は発注できません');
-  const price = newPriceYen(t, s.year, s.month);
-  const lead = leadMonths(t, s.year);
+  const price = newPriceYen(t, s.year, s.month) * (1 - (opts.discount ?? 0));
+  const lead = leadMonths(t, s.year) + (opts.extraMonths ?? 0);
   const delivery = nowYM(s) + lead;
   let upfront: number;
   let lease: Plane['lease'] = null;
@@ -88,6 +112,7 @@ export function orderNew(s: GameState, typeId: string, mode: OrderMode, leaseYea
     lease,
   };
   const how = mode === 'buy' ? '発注' : mode === 'operating' ? `リース（${leaseYears}年）で発注` : 'ファイナンスリース（10年）で発注';
+  if (opts.quiet) return ok({ ...s2, cash: s2.cash - upfront, planes: [...s2.planes, plane] });
   return ok(withNews({ ...s2, cash: s2.cash - upfront, planes: [...s2.planes, plane] },
     `${t.name}を${how}しました。納入は${ymLabel(delivery)}の予定です。`));
 }
