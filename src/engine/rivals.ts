@@ -7,6 +7,8 @@ import { ALLIANCES, ALLIANCE_BY_ID } from '../data/alliances';
 import { RIVALS, RIVAL_EVENTS, type Rival } from '../data/rivals';
 import { cargoDemandT, marketDemand, routeDistance } from './model';
 import type { GameState } from './types';
+import { slotAirports } from './schedule';
+import { slotHolding } from './slots';
 
 export interface Competitor {
   rival: Rival;
@@ -85,6 +87,15 @@ function capacityMul(r: Rival, year: number): number {
   return m;
 }
 
+/**
+ * At slot-controlled airports rivals can only fly what the player doesn't
+ * hold: their frequencies shrink as our share of the airport grows.
+ */
+export function rivalSlotFactor(s: GameState, code: string, year = s.year): number {
+  if (!slotAirports(year).includes(code)) return 1;
+  return Math.max(0.3, 1 - slotHolding(s, code));
+}
+
 /** All rival airlines flying a pair this month */
 export function competitors(s: GameState, a: string, b: string, year = s.year, month = s.month): Competitor[] {
   if (!isAirportOpen(AIRPORT_BY_CODE[a], year) || !isAirportOpen(AIRPORT_BY_CODE[b], year)) return [];
@@ -95,6 +106,7 @@ export function competitors(s: GameState, a: string, b: string, year = s.year, m
   const demand = marketDemand(a, b, year, 6);
   const pressure = s.aiPressure?.[pairKey(a, b)] ?? 0;
   const out: Competitor[] = [];
+  const slotF = Math.min(rivalSlotFactor(s, a, year), rivalSlotFactor(s, b, year));
 
   for (const [r, share] of shares(a, b, year)) {
     const seats = intl ? intlSeats(year, km) : rivalSeats(year, r.role);
@@ -106,7 +118,7 @@ export function competitors(s: GameState, a: string, b: string, year = s.year, m
     const diff = s.difficulty === 'easy' ? 0.8 : s.difficulty === 'hard' ? 1.2 : 1;
     const supply = demand * 0.8 * share * capacityMul(r, year) * (1 + 0.3 * pressure) * diff;
     const minWeekly = intl ? 2 : r.role === 'local' ? 3 : 7;
-    const weekly = Math.max(minWeekly, Math.round(supply / (seats * 0.68 * 4.33)));
+    const weekly = Math.max(minWeekly, Math.round((supply * slotF) / (seats * 0.68 * 4.33)));
     out.push({ rival: r, weeklyFreq: weekly, seats, fareMul: r.fareMul * (1 - 0.12 * pressure), comfort: rivalComfort(year, r) });
   }
 
@@ -117,7 +129,7 @@ export function competitors(s: GameState, a: string, b: string, year = s.year, m
       if (year < since || pairKey(x, y) !== pairKey(a, b)) continue;
       const seats = rivalSeats(year, r.role);
       const weekly = Math.max(7, Math.round((demand * 0.12) / (seats * 0.75 * 4.33)));
-      out.push({ rival: r, weeklyFreq: Math.min(weekly, 42), seats, fareMul: r.fareMul * (1 - 0.08 * pressure), comfort: rivalComfort(year, r) });
+      out.push({ rival: r, weeklyFreq: Math.max(7, Math.round(Math.min(weekly, 42) * slotF)), seats, fareMul: r.fareMul * (1 - 0.08 * pressure), comfort: rivalComfort(year, r) });
     }
   }
   void month;

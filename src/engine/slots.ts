@@ -33,6 +33,8 @@ export const SLOT_EVENTS: SlotEvent[] = [
   { code: 'ITM', year: 1970, month: 4, pool: 40, label: '大阪万博に向けたB滑走路（3,000m）の供用' },
   { code: 'ITM', year: 1977, month: 4, pool: 20, label: '騒音対策の進展による増便' },
   { code: 'ITM', year: 1994, month: 9, pool: 30, label: '関西空港の開港で国際線が移り、空いた枠の再配分' },
+  { code: 'NRT', year: 1986, month: 4, pool: 40, newcomer: 8, label: '国際線の複数社化（規制緩和）で枠を再配分（新規参入枠あり）' },
+  { code: 'NRT', year: 1992, month: 12, pool: 30, newcomer: 6, label: '第2旅客ターミナルの開業' },
   { code: 'NRT', year: 2002, month: 4, pool: 60, newcomer: 6, label: '暫定平行滑走路（B滑走路）の供用' },
   { code: 'NRT', year: 2015, month: 4, pool: 60, newcomer: 6, label: '年間30万回への容量拡大' },
 ];

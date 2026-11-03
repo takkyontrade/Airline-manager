@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { addCircuit, advanceMonth, closeRoute, removeCircuit, setCircuit, joinAlliance, newGame, openRoute, routeMarket, setOps, setRoute, START_CASH } from './sim';
 import { allocateSlots } from './slots';
+import { competitors } from './rivals';
 import { circuitScheduled, setPlaneBase, autoSchedule, scheduledWeekly, setPlaneSchedule, slotUsage, validateRotation, legViews } from './schedule';
 import { acquireUsed, disposePlane, orderNew, orderNewBulk, leadMonths, startConversion, startHeavyCheck } from './fleet';
 import { creditLimit, takeLoan, repayLoan } from './finance';
@@ -587,5 +588,15 @@ describe('aircraft type priority', () => {
     let s = fleet();
     s = must(setRoute(s, s.routes[1].id, { typePriority: ['ys11'] }));
     expect(typeOn(s, s.routes[1].id)).toBe('ys11');
+  });
+});
+
+describe('rival slots', () => {
+  test('rivals fly less at a slot airport as our holding grows', () => {
+    const s = { ...newGame('x', 'HND', 1, { startYear: 1960 }), year: 1990 };
+    const weekly = (g: GameState) => competitors(g, 'HND', 'CTS').reduce((n, c) => n + c.weeklyFreq, 0);
+    const few = weekly(s);
+    const many = weekly({ ...s, slots: { ...s.slots, HND: 100 } });
+    expect(many).toBeLessThan(few * 0.8);
   });
 });

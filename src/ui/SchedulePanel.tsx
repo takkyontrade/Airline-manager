@@ -81,7 +81,7 @@ export function SchedulePanel({ s, apply }: { s: GameState; apply: Apply }) {
                   <div><strong>{aptName(c)}</strong> 使用 {use[c] ?? 0} / {s.slots[c] ?? 0} 回 <span className="muted">（いちばん多い曜日）</span></div>
                   <div className="muted">
                     国の評価 {Math.round(sc.total * 100)}点（{sc.parts.map((p) => `${p.label}${Math.round(p.value * 100)}`).join('・')}）
-                    → 次の増枠で全体の{Math.round(slotShare(sc.total, s, c) * 100)}%を配分（上限{Math.round(slotCap(s, c) * 100)}%・空港全体の枠の{Math.round(slotHolding(s, c) * 100)}%を保有）
+                    → 次の増枠で全体の{Math.round(slotShare(sc.total, s, c) * 100)}%を配分（上限{Math.round(slotCap(s, c) * 100)}%・空港全体の枠の{Math.round(slotHolding(s, c) * 100)}%を保有。他社はこの分だけ便数を減らします）
                   </div>
                   <div className="muted">{next ? `次の増枠：${next.year}年${next.month}月 ${next.label}（全体で1日${next.pool}回）` : '予定されている増枠はありません'}</div>
                 </div>
