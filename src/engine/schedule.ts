@@ -401,6 +401,26 @@ function greedySchedule(s: GameState, opt: GreedyOpts): { state: GameState; scor
         placed = true;
         break;
       }
+      // too long for one day: one plane flies the circuit over several days
+      if (!placed) {
+        for (const p of planes) {
+          if (p.schedule.length || !ok(p) || (p.base !== c.stops[0] && p.baseFixed)) continue;
+          const cyc = circuitCycle(s, p, segs, minTurnMin(p) + s.bufferMin, c.stops[0]);
+          if (!cyc) continue;
+          const touches: Record<string, number> = {};
+          for (const g of segs) for (const code of [g.from, g.to]) if (code in slotLeft) touches[code] = (touches[code] ?? 0) + 1 / cyc.days;
+          if (slotDays(7, touches) === null) continue;
+          takeSlots(DAILY, touches);
+          p.base = c.stops[0];
+          p.schedule.push(...cyc.legs);
+          p.cycleDays = cyc.days;
+          state.time.set(p.id, 1e9);
+          remaining -= 7 / cyc.days;
+          circuitPlaced += (7 / cyc.days) * c.stops.length / 2;
+          placed = true;
+          break;
+        }
+      }
       if (!placed) break;
     }
   }
@@ -572,6 +592,30 @@ function longHaulCycle(s: GameState, p: Plane, r: Route, outDir: 0 | 1, turn: nu
         { routeId: r.id, dir: (1 - outDir) as 0 | 1, dep: back, days: DAILY },
       ],
     };
+  }
+  return null;
+}
+
+/** A circuit flown over several days by one plane (legs' dep can pass 24h), or null */
+function circuitCycle(s: GameState, p: Plane, segs: { from: string; to: string; route: Route; dir: 0 | 1 }[], turn: number, home: string): { legs: Leg[]; days: number } | null {
+  const [open] = airportHours(home, s.year);
+  for (const dep0 of [open, 600, 1080, 1260]) {
+    const start = Math.max(dep0, open);
+    let ready = start;
+    const legs: Leg[] = [];
+    let ok = true;
+    for (const g of segs) {
+      const block = legMinutes(p, g.route, s.year);
+      let dep = ready, tries = 0;
+      while ((!inHours(g.from, s.year, dep) || !inHours(g.to, s.year, dep + block)) && tries++ < 96) dep += 15;
+      if (tries >= 96) { ok = false; break; }
+      legs.push({ routeId: g.route.id, dir: g.dir, dep, days: DAILY });
+      ready = dep + block + turn;
+    }
+    if (!ok) continue;
+    const days = Math.max(1, Math.ceil((ready - legs[0].dep) / 1440));
+    if (days > 7) continue;
+    return { legs, days };
   }
   return null;
 }

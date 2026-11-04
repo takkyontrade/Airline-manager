@@ -689,3 +689,16 @@ describe('cargo circuits', () => {
     expect(res.pax).toBeGreaterThan(0);
   });
 });
+
+describe('long circuits', () => {
+  test('a long cargo circuit is flown over several days', () => {
+    let s: GameState = { ...newGame('t', 'NRT', 1, { startYear: 2005 }), reputation: 80, cash: 1e12, slots: { HND: 99, ITM: 99, NRT: 99 } };
+    for (let i = 0; i < 3; i++) { let id: string; [s, id] = withListing(s, 'b747-200f', 1); s = must(acquireUsed(s, id, 'buy')); }
+    s = { ...s, crewBases: [...s.crewBases, 'NRT'], pilots: { ...s.pilots, 'b747-200': { rated: 40, training: [] } }, planes: s.planes.map((p) => ({ ...p, base: 'NRT' })) };
+    s = must(addCircuit(s, ['NRT', 'ANC', 'FRA', 'LHR', 'ANC'], 7, null, 'cargo'));
+    const flying = s.planes.filter((p) => p.schedule.length);
+    expect(flying.length).toBeGreaterThan(0);
+    expect(flying.every((p) => (p.cycleDays ?? 1) > 1)).toBe(true);
+    expect(circuitScheduled(s, s.circuits![0])).toBeGreaterThan(2);
+  });
+});
