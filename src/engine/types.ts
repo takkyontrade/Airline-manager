@@ -74,6 +74,8 @@ export interface Route {
   typeId: string | null;
   /** preferred aircraft types, best first (the auto-scheduler tries these before others) */
   typePriority?: string[];
+  /** types the auto-scheduler must never use on this route */
+  typeBan?: string[];
   policy: SchedulePolicy;
   fareYen: number;
   openedYear: number;

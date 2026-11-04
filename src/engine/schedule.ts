@@ -218,7 +218,7 @@ function preferredTimes(policy: SchedulePolicy, open: number, close: number, k: 
 interface Need { route: Route; remainingWeekly: number }
 
 /** Freighters fly cargo routes, airliners fly passenger routes */
-export const suits = (p: Plane, r: Route) => !!planeType(p).freighter === (r.kind === 'cargo');
+export const suits = (p: Plane, r: Route) => !!planeType(p).freighter === (r.kind === 'cargo') && !(r.typeBan ?? []).includes(p.typeId);
 
 /**
  * Rebuild schedules of all unlocked, delivered planes from route targets.
@@ -340,7 +340,7 @@ function greedySchedule(s: GameState, opt: GreedyOpts): { state: GameState; scor
     for (let i = 0; i < k && busy.length; i++) {
       const r = busy[i % busy.length].route;
       const out = hub(r.from) >= hub(r.to) ? r.to : r.from;
-      const p = free.find((x) => (x.base === r.from || x.base === r.to) && x.base !== out && canFly(planeType(x), r.from, r.to, s.year, r.via).ok && (!r.typeId || x.typeId === r.typeId));
+      const p = free.find((x) => (x.base === r.from || x.base === r.to) && x.base !== out && suits(x, r) && canFly(planeType(x), r.from, r.to, s.year, r.via).ok && (!r.typeId || x.typeId === r.typeId));
       if (p) { p.base = out; free.splice(free.indexOf(p), 1); }
     }
   }

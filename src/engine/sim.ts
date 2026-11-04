@@ -187,7 +187,7 @@ export function closeRoute(s: GameState, routeId: string): Result {
   }, `${AIRPORT_BY_CODE[r.from].name}〜${AIRPORT_BY_CODE[r.to].name}線を廃止しました。`)));
 }
 
-export type RoutePatch = Partial<{ pricing: PricingMode | null; fareYen: number; targetWeekly: number; typeId: string | null; typePriority: string[]; policy: SchedulePolicy; cargoRateYen: number; cabin: CabinLayout; via: string | null }>;
+export type RoutePatch = Partial<{ pricing: PricingMode | null; fareYen: number; targetWeekly: number; typeId: string | null; typePriority: string[]; typeBan: string[]; policy: SchedulePolicy; cargoRateYen: number; cabin: CabinLayout; via: string | null }>;
 
 export function setRoute(s: GameState, routeId: string, patch: RoutePatch): Result {
   const r = s.routes.find((x) => x.id === routeId);
@@ -212,7 +212,7 @@ export function setRoute(s: GameState, routeId: string, patch: RoutePatch): Resu
   let s2: GameState = { ...s, routes: s.routes.map((x) => (x.id === routeId ? next : x)) };
   if (patch.cabin) s2 = noteCabin(s2, patch.cabin);
   // fares don't change the timetable
-  const scheduleChanged = patch.targetWeekly !== undefined || patch.typeId !== undefined || patch.typePriority !== undefined || patch.policy !== undefined || patch.via !== undefined;
+  const scheduleChanged = patch.targetWeekly !== undefined || patch.typeId !== undefined || patch.typePriority !== undefined || patch.typeBan !== undefined || patch.policy !== undefined || patch.via !== undefined;
   return ok(scheduleChanged ? autoSchedule(s2) : s2);
 }
 
@@ -290,7 +290,7 @@ export function setPricingDefault(s: GameState, mode: PricingMode): Result {
   return ok({ ...s, pricingDefault: mode });
 }
 
-export type BulkPatch = Partial<{ pricing: PricingMode | null; fareRatio: number; weeklyScale: number; policy: SchedulePolicy; cabin: CabinLayout }>;
+export type BulkPatch = Partial<{ ban: string; unban: string; pricing: PricingMode | null; fareRatio: number; weeklyScale: number; policy: SchedulePolicy; cabin: CabinLayout }>;
 
 /** Change every route in a group at once (one reschedule at the end) */
 export function setRouteGroup(s: GameState, group: RouteGroup | 'all', patch: BulkPatch, airport?: string): Result {
@@ -309,9 +309,11 @@ export function setRouteGroup(s: GameState, group: RouteGroup | 'all', patch: Bu
     const sched: Partial<Route> = {};
     if (patch.weeklyScale !== undefined) sched.targetWeekly = Math.min(140, Math.max(1, Math.round(r.targetWeekly * patch.weeklyScale)));
     if (patch.policy !== undefined && POLICY_LEVEL[patch.policy] <= s.opsLevel) sched.policy = patch.policy;
+    if (patch.ban) { sched.typeBan = [...new Set([...(r.typeBan ?? []), patch.ban])]; sched.typePriority = (r.typePriority ?? []).filter((x) => x !== patch.ban); if (r.typeId === patch.ban) sched.typeId = null; }
+    if (patch.unban) sched.typeBan = (r.typeBan ?? []).filter((x) => x !== patch.unban);
     cur = { ...cur, routes: cur.routes.map((x) => (x.id === r.id ? { ...x, ...sched } : x)) };
   }
-  const resched = patch.weeklyScale !== undefined || patch.policy !== undefined;
+  const resched = patch.weeklyScale !== undefined || patch.policy !== undefined || !!patch.ban || !!patch.unban;
   return ok(withNews(resched ? autoSchedule(cur) : cur, `${airport ? `${AIRPORT_BY_CODE[airport]?.name ?? airport}発着の` : ''}${group === 'all' ? '全路線' : ROUTE_GROUP_LABEL[group]}（${targets.length}路線）をまとめて変更しました。`));
 }
 

@@ -282,3 +282,4 @@ main.full > .tabs { flex: 0 0 auto; }
 .live-bar input[type=range] { flex: 1; min-width: 140px; }
 .live-clock { font-family: ui-monospace, monospace; font-size: 18px; color: var(--accent2); min-width: 76px; }
 .live-info { flex-basis: 100%; }
+.chip.ban { background: #3a1f24; color: #ffb3b3; }

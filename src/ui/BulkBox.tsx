@@ -6,6 +6,7 @@ import type { CabinLayout, GameState, PricingMode, RouteGroup, SchedulePolicy } 
 import { PRICING_HELP } from './pricingHelp';
 import { NumInput } from './NumInput';
 import { AIRPORT_BY_CODE } from '../data/airports';
+import { AIRCRAFT_BY_ID } from '../data/aircraft';
 
 const GROUPS: (RouteGroup | 'all')[] = ['all', 'trunk', 'local', 'intl', 'cargo'];
 const groupName = (g: RouteGroup | 'all') => (g === 'all' ? '全路線' : ROUTE_GROUP_LABEL[g]);
@@ -28,6 +29,7 @@ export function BulkBox({ s, apply, airport = '' }: { s: GameState; apply: (r: R
   const go = (p: BulkPatch) => apply(setRouteGroup(s, group, p, airport || undefined));
   const where = airport ? `${AIRPORT_BY_CODE[airport]?.name ?? airport}発着の` : '';
   const cargo = group === 'cargo';
+  const types = [...new Set(s.planes.map((p) => p.typeId))].filter((id) => group === 'all' || !!AIRCRAFT_BY_ID[id].freighter === cargo);
   return (
     <div className="card">
       <div className="card-head"><strong>まとめて変更</strong></div>
@@ -87,6 +89,19 @@ export function BulkBox({ s, apply, airport = '' }: { s: GameState; apply: (r: R
               <option key={k} value={k} disabled={POLICY_LEVEL[k] > s.opsLevel}>{POLICY_LABEL[k]}{POLICY_LEVEL[k] > s.opsLevel ? `（${OPS_LEVELS[POLICY_LEVEL[k]].label}以上）` : ''}</option>
             ))}
           </select>
+        </label>
+        <label>
+          使わない機種
+          <span className="row">
+            <select value="" onChange={(e) => e.target.value && go({ ban: e.target.value })}>
+              <option value="">追加…</option>
+              {types.map((id) => <option key={id} value={id}>{AIRCRAFT_BY_ID[id].name}</option>)}
+            </select>
+            <select value="" onChange={(e) => e.target.value && go({ unban: e.target.value })}>
+              <option value="">解除…</option>
+              {types.map((id) => <option key={id} value={id}>{AIRCRAFT_BY_ID[id].name}</option>)}
+            </select>
+          </span>
         </label>
         {!cargo && (
           <label>

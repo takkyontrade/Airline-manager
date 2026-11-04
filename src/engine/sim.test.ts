@@ -702,3 +702,18 @@ describe('long circuits', () => {
     expect(circuitScheduled(s, s.circuits![0])).toBeGreaterThan(2);
   });
 });
+
+describe('type ban', () => {
+  test('a banned type never flies the route', () => {
+    let s: GameState = { ...newGame('t', 'HND', 1, { startYear: 1972 }), slots: { HND: 200, ITM: 200, NRT: 20 } };
+    for (const t of ['ys11', 'ys11']) { let id: string; [s, id] = withListing(s, t, 1); s = must(acquireUsed(s, id, 'buy')); }
+    s = must(openRoute(s, 'HND', 'CTS', { skipLicense: true }));
+    const id = s.routes[0].id;
+    expect(s.planes.some((p) => p.schedule.some((l) => l.routeId === id))).toBe(true);
+    s = must(setRoute(s, id, { typeBan: ['ys11'] }));
+    expect(s.planes.some((p) => p.schedule.some((l) => l.routeId === id))).toBe(false);
+    s = must(setRouteGroup(s, 'all', { unban: 'ys11' }));
+    expect(s.routes[0].typeBan).toEqual([]);
+    expect(s.planes.some((p) => p.schedule.some((l) => l.routeId === id))).toBe(true);
+  });
+});

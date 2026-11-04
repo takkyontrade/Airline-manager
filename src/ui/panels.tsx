@@ -118,10 +118,28 @@ export function RouteDetail({ s, r, apply }: { s: GameState; r: Route; apply: Ap
                 ))}
                 <select value="" onChange={(e) => e.target.value && apply(setRoute(s, r.id, { typePriority: [...(r.typePriority ?? []), e.target.value] }))}>
                   <option value="">＋ 機種を追加</option>
-                  {ownedTypes.filter((id) => !!AIRCRAFT_BY_ID[id].freighter === cargoRoute && !(r.typePriority ?? []).includes(id) && canFly(AIRCRAFT_BY_ID[id], r.from, r.to, s.year, r.via).ok).map((id) => <option key={id} value={id}>{AIRCRAFT_BY_ID[id].name}</option>)}
+                  {ownedTypes.filter((id) => !!AIRCRAFT_BY_ID[id].freighter === cargoRoute && !(r.typePriority ?? []).includes(id) && !(r.typeBan ?? []).includes(id) && canFly(AIRCRAFT_BY_ID[id], r.from, r.to, s.year, r.via).ok).map((id) => <option key={id} value={id}>{AIRCRAFT_BY_ID[id].name}</option>)}
                 </select>
               </div>
               <span className="muted small-text">{(r.typePriority ?? []).length ? '上の機種から順に割り当て、空いていなければ他の機種も使います' : '未設定なら、需要の多い路線ほど大きい機体を優先します'}</span>
+            </div>
+          )}
+          {!r.typeId && (
+            <div className="prio">
+              <span>使わない機種</span>
+              <div className="prio-list">
+                {(r.typeBan ?? []).map((id, _i, arr) => (
+                  <span key={id} className="chip ban">
+                    🚫 {AIRCRAFT_BY_ID[id]?.name ?? id}
+                    <button className="link" title="解除" onClick={() => apply(setRoute(s, r.id, { typeBan: arr.filter((x) => x !== id) }))}>×</button>
+                  </span>
+                ))}
+                <select value="" onChange={(e) => e.target.value && apply(setRoute(s, r.id, { typeBan: [...(r.typeBan ?? []), e.target.value], typePriority: (r.typePriority ?? []).filter((x) => x !== e.target.value) }))}>
+                  <option value="">＋ 使わない機種を追加</option>
+                  {ownedTypes.filter((id) => !!AIRCRAFT_BY_ID[id].freighter === cargoRoute && !(r.typeBan ?? []).includes(id)).map((id) => <option key={id} value={id}>{AIRCRAFT_BY_ID[id].name}</option>)}
+                </select>
+              </div>
+              <span className="muted small-text">ここに入れた機種は、自動ダイヤでこの路線に割り当てられません</span>
             </div>
           )}
           <label>
